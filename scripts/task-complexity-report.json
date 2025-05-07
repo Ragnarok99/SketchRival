@@ -1,0 +1,131 @@
+{
+  "meta": {
+    "generatedAt": "2025-05-07T01:29:19.614Z",
+    "tasksAnalyzed": 15,
+    "thresholdScore": 5,
+    "projectName": "Taskmaster",
+    "usedResearch": false
+  },
+  "complexityAnalysis": [
+    {
+      "taskId": 1,
+      "taskTitle": "Configuración Inicial del Proyecto",
+      "complexityScore": 6,
+      "recommendedSubtasks": 7,
+      "expansionPrompt": "Divide la configuración inicial del proyecto en subtareas específicas para cada componente: frontend React/TypeScript, backend Node.js/Express, MongoDB, estructura de carpetas, herramientas de calidad de código, entorno de pruebas y paquetes iniciales. Para cada subtarea, especifica los pasos concretos, criterios de aceptación y tiempo estimado.",
+      "reasoning": "La configuración inicial tiene complejidad media-alta porque implica múltiples tecnologías y entornos. Aunque son tareas técnicas bien definidas, requieren conocimiento específico y pueden surgir problemas de compatibilidad entre herramientas."
+    },
+    {
+      "taskId": 2,
+      "taskTitle": "Sistema de Autenticación de Usuarios",
+      "complexityScore": 8,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Desglosa el sistema de autenticación en subtareas específicas para: modelo de usuario, registro local, sistema de tokens JWT, integración OAuth, endpoints de API, formularios frontend, validación de datos y recuperación de contraseña. Para cada subtarea, define los requisitos de seguridad, pruebas necesarias y posibles vulnerabilidades a mitigar.",
+      "reasoning": "La autenticación es una tarea de alta complejidad por sus implicaciones de seguridad, múltiples flujos de usuario y la necesidad de integrar servicios externos (OAuth). Requiere implementación tanto en frontend como backend con consideraciones especiales de seguridad."
+    },
+    {
+      "taskId": 3,
+      "taskTitle": "Implementación del Canvas de Dibujo",
+      "complexityScore": 7,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Divide la implementación del canvas de dibujo en subtareas específicas: componente base Canvas, herramientas de dibujo, funcionalidad de borrador, sistema de deshacer/rehacer, optimización de rendimiento, interfaz de usuario para herramientas, guardado de imágenes y adaptación responsive. Para cada subtarea, especifica los requisitos técnicos, casos de uso y criterios de rendimiento.",
+      "reasoning": "El canvas de dibujo tiene complejidad alta debido a la manipulación directa de gráficos, gestión de eventos de usuario, optimización de rendimiento y la necesidad de compatibilidad con múltiples dispositivos y navegadores."
+    },
+    {
+      "taskId": 4,
+      "taskTitle": "Sistema de Salas de Juego",
+      "complexityScore": 7,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Desglosa el sistema de salas de juego en subtareas específicas: API de salas, modelos de datos, opciones configurables, interfaz de usuario, sistema de salas públicas/privadas, generación de códigos, sala de espera y comunicación en tiempo real. Para cada subtarea, define los requisitos funcionales, casos de prueba y consideraciones de escalabilidad.",
+      "reasoning": "El sistema de salas tiene complejidad alta por la necesidad de sincronización en tiempo real, gestión de estados entre múltiples usuarios y la implementación de lógica tanto en frontend como backend."
+    },
+    {
+      "taskId": 5,
+      "taskTitle": "Mecánica Básica del Juego",
+      "complexityScore": 8,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Divide la mecánica básica del juego en subtareas específicas: sistema de rondas, temporizador, selección de palabras, banco de palabras por categorías, sincronización entre jugadores, máquina de estados del juego, envío de dibujos y transiciones entre estados. Para cada subtarea, detalla la lógica de negocio, requisitos de sincronización y manejo de casos excepcionales.",
+      "reasoning": "La mecánica del juego tiene alta complejidad por la necesidad de coordinar múltiples estados entre varios jugadores en tiempo real, gestionar temporizadores sincronizados y manejar transiciones de estado de forma robusta."
+    },
+    {
+      "taskId": 6,
+      "taskTitle": "Integración con OpenAI GPT-4o",
+      "complexityScore": 9,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Desglosa la integración con OpenAI en subtareas específicas: configuración de API, procesamiento de imágenes, sistema de prompting, lógica de evaluación de múltiples dibujos, extracción de explicaciones, sistema de caché, mecanismos de fallback y control de costos. Para cada subtarea, define los requisitos técnicos, estrategias de optimización y planes de contingencia.",
+      "reasoning": "La integración con IA tiene complejidad muy alta debido a la necesidad de interactuar con APIs externas, optimizar prompts para evaluación visual, procesar respuestas complejas y gestionar costos y límites de API. Requiere experimentación y ajustes iterativos."
+    },
+    {
+      "taskId": 7,
+      "taskTitle": "Sistema de Puntuación",
+      "complexityScore": 6,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Divide el sistema de puntuación en subtareas específicas: algoritmo de puntuación, bonificaciones por velocidad, sistema de niveles, tablas de clasificación en tiempo real, almacenamiento de historial, tablas de líderes, sistema de temporadas e interfaz de usuario. Para cada subtarea, detalla los algoritmos, estructuras de datos y requisitos de rendimiento.",
+      "reasoning": "El sistema de puntuación tiene complejidad media-alta porque implica algoritmos de clasificación, actualización en tiempo real y persistencia de datos históricos. La lógica de negocio es moderadamente compleja pero bien definida."
+    },
+    {
+      "taskId": 8,
+      "taskTitle": "Interfaz de Usuario Principal",
+      "complexityScore": 7,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Desglosa la interfaz de usuario principal en subtareas específicas: menú principal, pantallas de juego responsivas, visualización de resultados por ronda, visualización de todos los dibujos, pantalla de fin de juego, transiciones y animaciones, tema visual y sistema de notificaciones. Para cada subtarea, define los requisitos de diseño, componentes necesarios y consideraciones de experiencia de usuario.",
+      "reasoning": "La UI principal tiene complejidad alta por la necesidad de crear múltiples pantallas interactivas, asegurar consistencia visual, implementar animaciones y garantizar una experiencia fluida en diferentes dispositivos y tamaños de pantalla."
+    },
+    {
+      "taskId": 9,
+      "taskTitle": "Sistema de Chat",
+      "complexityScore": 6,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Divide el sistema de chat en subtareas específicas: interfaz de usuario, integración de Socket.io, chat de sala de espera, chat durante el juego, chat global, moderación de contenido, emojis/reacciones y notificaciones. Para cada subtarea, detalla los requisitos funcionales, consideraciones de rendimiento y manejo de casos de uso específicos.",
+      "reasoning": "El sistema de chat tiene complejidad media-alta debido a la comunicación en tiempo real, necesidad de moderación y múltiples contextos de chat. La implementación técnica es relativamente estándar pero requiere atención a detalles de UX y rendimiento."
+    },
+    {
+      "taskId": 10,
+      "taskTitle": "Perfiles de Usuario y Estadísticas",
+      "complexityScore": 6,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Desglosa los perfiles de usuario y estadísticas en subtareas específicas: página de perfil, visualización de estadísticas, historial de partidas, sistema de logros, visualización de nivel/progreso, personalización de perfil, galería de dibujos y rankings de usuario. Para cada subtarea, define los datos necesarios, consultas a la base de datos y consideraciones de rendimiento.",
+      "reasoning": "Los perfiles y estadísticas tienen complejidad media-alta porque implican múltiples visualizaciones de datos, cálculos estadísticos y consultas potencialmente complejas a la base de datos. La implementación es principalmente de presentación pero con lógica de negocio moderada."
+    },
+    {
+      "taskId": 11,
+      "taskTitle": "Sistema de Amigos",
+      "complexityScore": 5,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Divide el sistema de amigos en subtareas específicas: solicitudes de amistad, lista de amigos, indicador de amigos en línea, invitaciones a salas, notificaciones, búsqueda de usuarios, interfaz de gestión y bloqueo de usuarios. Para cada subtarea, detalla el flujo de usuario, modelo de datos y requisitos de actualización en tiempo real.",
+      "reasoning": "El sistema de amigos tiene complejidad media porque implica relaciones bidireccionales entre usuarios y actualizaciones en tiempo real, pero sigue patrones bien establecidos en aplicaciones sociales. La implementación es relativamente directa."
+    },
+    {
+      "taskId": 12,
+      "taskTitle": "Compartición en Redes Sociales",
+      "complexityScore": 5,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Desglosa la compartición en redes sociales en subtareas específicas: guardado de dibujos, integración con APIs sociales, creación de imágenes con marca de agua, previsualización, compartición de resultados, compartición de invitaciones, estadísticas y galería pública. Para cada subtarea, define los requisitos técnicos, integraciones necesarias y consideraciones de privacidad.",
+      "reasoning": "La compartición social tiene complejidad media porque implica integración con APIs externas y generación de contenido compartible, pero las funcionalidades son relativamente independientes y siguen patrones establecidos de integración social."
+    },
+    {
+      "taskId": 13,
+      "taskTitle": "Optimización y Rendimiento",
+      "complexityScore": 7,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Divide la optimización y rendimiento en subtareas específicas: optimización del canvas, carga perezosa, optimización de base de datos, mejora de tiempos de API, estrategias de caché, optimización de assets, pruebas de carga y monitoreo. Para cada subtarea, define métricas de rendimiento, objetivos específicos y metodologías de medición.",
+      "reasoning": "La optimización tiene complejidad alta porque requiere análisis profundo de múltiples componentes del sistema, identificación de cuellos de botella y aplicación de técnicas específicas para cada área. Requiere conocimiento especializado y pruebas exhaustivas."
+    },
+    {
+      "taskId": 14,
+      "taskTitle": "Despliegue Inicial",
+      "complexityScore": 7,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Desglosa el despliegue inicial en subtareas específicas: configuración del entorno de producción, implementación de CI/CD, configuración de bases de datos, servicios cloud, CDN, seguridad HTTPS, configuración de dominio y pruebas de integración. Para cada subtarea, define los requisitos de infraestructura, scripts necesarios y procedimientos de verificación.",
+      "reasoning": "El despliegue tiene complejidad alta debido a la configuración de múltiples servicios de infraestructura, necesidad de seguridad robusta y automatización de procesos de despliegue. Requiere conocimiento especializado en DevOps y consideraciones de escalabilidad."
+    },
+    {
+      "taskId": 15,
+      "taskTitle": "Sistema de Moderación y Seguridad",
+      "complexityScore": 8,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Divide el sistema de moderación y seguridad en subtareas específicas: detección de contenido inapropiado, sistema de reportes, panel de moderación, filtrado de texto, sistema de penalizaciones, validaciones de seguridad, límites de uso y sistema de logs. Para cada subtarea, define los requisitos de seguridad, algoritmos de detección y procedimientos de moderación.",
+      "reasoning": "La moderación y seguridad tienen complejidad alta debido a la necesidad de implementar algoritmos de detección de contenido inapropiado, gestionar reportes de usuarios y establecer múltiples capas de protección. Tiene implicaciones legales y de experiencia de usuario significativas."
+    }
+  ]
+}

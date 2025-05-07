@@ -1,0 +1,133 @@
+# Descripción General
+SketchRival es un juego web multijugador inspirado en skribbl.io, pero con una diferencia significativa: en lugar de que los jugadores humanos adivinen los dibujos, la IA (GPT-4o) es la que evalúa y determina qué dibujo representa mejor la palabra asignada.
+
+En cada ronda, todos los usuarios reciben la misma palabra para dibujar. Tienen 60 segundos para crear su interpretación visual. Al final de la ronda, todas las imágenes se envían a la IA, que evalúa cuál de ellas representa mejor la palabra o concepto asignado. La aplicación mostrará una clasificación de los dibujos según la evaluación de la IA.
+
+# Características Principales
+
+## Sistema de Usuarios
+- Registro e inicio de sesión de usuarios (email/contraseña o autenticación con Google/Facebook)
+- Perfiles de usuario con historial de juegos y estadísticas
+- Sistema de niveles y puntos de experiencia basado en el desempeño
+
+## Sala de Juego
+- Creación y unión a salas de juego públicas o privadas
+- Opciones configurables: número de rondas, tiempo por ronda, categorías de palabras
+- Sala de espera con chat entre jugadores
+- Indicador visual de jugadores conectados y su estado
+
+## Mecánica de Juego
+- Selección aleatoria de palabras de distintas categorías (animales, objetos, lugares, etc.)
+- Temporizador de 60 segundos para dibujar
+- Herramientas de dibujo intuitivas (pinceles, colores, grosores, borrador, deshacer)
+- Sistema para enviar el dibujo cuando el jugador termina antes del tiempo límite
+
+## Evaluación por IA
+- Integración con OpenAI GPT-4o para evaluar los dibujos
+- Algoritmo para enviar todos los dibujos simultáneamente y obtener un ranking
+- Explicaciones generadas por la IA sobre por qué seleccionó cada dibujo
+- Visualización de todos los dibujos y sus puntuaciones al final de cada ronda
+
+## Sistema de Puntuación
+- Asignación de puntos basada en la evaluación de la IA (posición en el ranking)
+- Bonificación por velocidad de finalización
+- Tabla de clasificación en tiempo real durante el juego
+- Tabla de líderes global y semanal
+
+## Características Sociales
+- Opción para guardar y compartir dibujos en redes sociales
+- Sistema para añadir amigos y ver cuándo están online
+- Invitación a amigos a salas privadas
+- Chat global y de sala
+
+# Arquitectura Técnica
+
+## Frontend
+- Aplicación web desarrollada con React y TypeScript
+- Canvas HTML5 para la funcionalidad de dibujo
+- Socket.io para comunicación en tiempo real
+- Styled-components para estilizado
+
+## Backend
+- Node.js con Express para la API REST
+- Socket.io para gestionar eventos en tiempo real
+- Base de datos MongoDB para almacenar usuarios, historial de juegos y estadísticas
+- Sistema de autenticación JWT
+
+## Integración con IA
+- API de OpenAI para GPT-4o
+- Procesamiento de imágenes para convertir dibujos a formato compatible
+- Sistema de prompting optimizado para evaluación visual
+- Caché para optimizar costos de API
+
+## Infraestructura
+- Despliegue en servicios cloud (AWS/GCP/Azure)
+- CDN para activos estáticos
+- Sistema de escalado automático para manejar picos de tráfico
+- Monitoreo y alertas
+
+# Plan de Desarrollo
+
+## Fase 1: MVP
+- Implementación básica del sistema de usuarios (registro, inicio de sesión)
+- Sala de juego con funcionalidad básica
+- Herramientas de dibujo esenciales
+- Integración inicial con GPT-4o para evaluación simple
+- Mecánica básica de juego con palabras predefinidas
+- UI/UX funcional pero básica
+
+## Fase 2: Refinamiento
+- Mejora del sistema de usuarios con perfiles detallados y estadísticas
+- Optimización de la evaluación de IA
+- Ampliación de categorías y palabras
+- Mejora en las herramientas de dibujo
+- Sistema de puntuación más elaborado
+- Mejoras en UI/UX con animaciones y feedback visual
+
+## Fase 3: Características Sociales y Monetización
+- Implementación completa de características sociales
+- Sistema de amigos e invitaciones
+- Opciones de personalización (avatares, colores)
+- Implementación de compras dentro de la aplicación (moneda virtual, cosméticos)
+- Sistema de suscripción premium con beneficios exclusivos
+
+## Fase 4: Expansión
+- Aplicaciones móviles (iOS/Android)
+- Modos de juego adicionales
+- Eventos especiales y temporadas
+- Integración con Twitch/YouTube para streaming
+- Sistema de torneos y competiciones
+
+# Dependencia Lógica
+1. Sistema básico de usuarios y autenticación
+2. Configuración del canvas para dibujo
+3. Sala de juego y gestión de estados
+4. Comunicación en tiempo real entre jugadores
+5. Integración con GPT-4o para evaluación
+6. Sistema de puntuación y rankings
+7. Características sociales y compartición
+8. Monetización
+
+# Riesgos y Mitigaciones
+
+## Costos de API de OpenAI
+- **Riesgo**: El uso intensivo de GPT-4o puede resultar costoso a escala.
+- **Mitigación**: Implementar sistema de caché, limitar el número de evaluaciones, considerar modelos alternativos más económicos para algunas funciones.
+
+## Experiencia de Usuario en Tiempo Real
+- **Riesgo**: Problemas de latencia o desconexiones que afecten la experiencia.
+- **Mitigación**: Implementar reconexión automática, estado offline temporal, sincronización periódica.
+
+## Precisión de la IA
+- **Riesgo**: GPT-4o puede no evaluar correctamente todos los dibujos.
+- **Mitigación**: Refinar el sistema de prompting, permitir reportes de usuarios sobre evaluaciones incorrectas, sistema de aprendizaje continuo.
+
+## Escalabilidad
+- **Riesgo**: Problemas de rendimiento con muchos usuarios simultáneos.
+- **Mitigación**: Arquitectura diseñada para escalar horizontalmente, optimización de bases de datos, caching agresivo.
+
+# Apéndice
+- La integración con GPT-4o utilizará la API de Visión de OpenAI para analizar los dibujos.
+- Se necesitará un sistema de moderación para evitar contenido inapropiado.
+- La arquitectura debe considerar la internacionalización desde el principio.
+- Se deberá implementar análisis y métricas para entender el comportamiento de los usuarios y mejorar la experiencia. 

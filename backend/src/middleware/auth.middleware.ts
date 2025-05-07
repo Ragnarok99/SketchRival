@@ -1,0 +1,45 @@
+import { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
+import { JWT_SECRET } from "../config/database";
+import { UserModel } from "../models/User.model";
+
+// Extender la interfaz Request de Express para incluir la propiedad user
+// Esta interfaz debe coincidir con lo que se pone en el payload del JWT
+export interface AuthenticatedUser {
+  userId: string;
+  username: string;
+  // Podrías añadir más campos si los incluyes en el payload del JWT
+}
+
+export interface IRequestWithUser extends Request {
+  user?: AuthenticatedUser;
+}
+
+export const protect = async (
+  req: IRequestWithUser,
+  res: Response,
+  next: NextFunction,
+) => {
+  let token;
+
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith("Bearer")
+  ) {
+    try {
+      token = req.headers.authorization.split(" ")[1];
+      // El tipo del payload decodificado debe coincidir con AuthenticatedUser
+      const decoded = jwt.verify(token, JWT_SECRET) as AuthenticatedUser;
+
+      req.user = decoded; // Asignar el payload decodificado directamente
+      next();
+    } catch (error) {
+      console.error(error);
+      return res.status(401).send({ message: "Not authorized, token failed" });
+    }
+  }
+
+  if (!token) {
+    return res.status(401).send({ message: "Not authorized, no token" });
+  }
+};
