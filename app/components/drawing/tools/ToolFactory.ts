@@ -21,7 +21,7 @@ export class ToolFactory {
    * Opción para usar implementaciones optimizadas
    * Si es true, se usarán versiones optimizadas cuando estén disponibles
    */
-  private static useOptimizedTools: boolean = true;
+  private static useOptimizedTools: boolean = true; // Volvemos a habilitar las herramientas optimizadas
 
   /**
    * Controla el uso de herramientas optimizadas
@@ -41,10 +41,13 @@ export class ToolFactory {
     type: DrawingToolType,
     options: DrawingToolOptions,
   ): DrawingTool {
+    console.log(`Creando herramienta: ${type}, modo optimizado: ${ToolFactory.useOptimizedTools}`);
+    
     // Primero verificamos si hay versiones optimizadas disponibles
     if (ToolFactory.useOptimizedTools) {
       switch (type) {
         case "pencil":
+          console.log("Usando OptimizedPencilTool");
           return new OptimizedPencilTool(options);
         // Podemos añadir más herramientas optimizadas aquí a medida que se implementen
       }
@@ -79,6 +82,7 @@ export class ToolFactory {
         legacyTool = new PencilTool(options);
     }
 
+    console.log(`Usando ToolAdapter para ${type}`);
     // Envolvemos la herramienta legada con el adaptador para compatibilidad
     return new ToolAdapter(legacyTool);
   }

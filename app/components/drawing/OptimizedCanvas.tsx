@@ -19,6 +19,9 @@ interface OptimizedCanvasProps {
   height?: number;
   className?: string;
   maxHistorySize?: number;
+  responsive?: boolean;
+  maxWidth?: number;
+  preserveAspectRatio?: boolean;
 }
 
 /**
@@ -29,6 +32,9 @@ const OptimizedCanvas = ({
   height = 600,
   className = "",
   maxHistorySize = 30,
+  responsive = true,
+  maxWidth = 1200,
+  preserveAspectRatio = true,
 }: OptimizedCanvasProps) => {
   // Referencias
   const layersRef = useRef<LayerRefs>(null);
@@ -71,6 +77,10 @@ const OptimizedCanvas = ({
     renderTime: 0,
   });
   const [showPerformanceStats, setShowPerformanceStats] = useState(false);
+
+  // Estados para manejo responsivo
+  const [currentWidth, setCurrentWidth] = useState(width);
+  const [currentHeight, setCurrentHeight] = useState(height);
 
   // Actualizar estados del historial (con debounce para mejorar rendimiento)
   const updateHistoryStates = useCallback(
@@ -296,23 +306,67 @@ const OptimizedCanvas = ({
     };
   }, [handleUndo, handleRedo]);
 
-  // Obtener posición relativa del mouse o toque (throttled para mejorar rendimiento)
+  // Manejador de redimensionamiento del canvas
+  const handleCanvasResize = useCallback((newWidth: number, newHeight: number) => {
+    if (newWidth === currentWidth && newHeight === currentHeight) return;
+    
+    console.log(`Canvas redimensionado a ${newWidth}x${newHeight}`);
+    
+    // Actualizar dimensiones actuales
+    setCurrentWidth(newWidth);
+    setCurrentHeight(newHeight);
+    
+    // Actualizar contextos después del redimensionamiento
+    updateLayerContexts();
+    
+    // Actualizar calidad de renderizado basado en tamaño
+    // Para dispositivos móviles pequeños, reducir calidad automáticamente
+    if (newWidth < 600) {
+      const newQuality = {
+        level: 'medium' as const,
+        optimizationFactor: 0.6
+      };
+      setRenderQuality(newQuality);
+      
+      // Actualizar calidad en la herramienta actual
+      if (currentToolRef.current.updateRenderQuality) {
+        currentToolRef.current.updateRenderQuality(newQuality);
+      }
+    }
+    
+    // Para pantallas muy pequeñas, reducir aún más
+    if (newWidth < 400) {
+      const newQuality = {
+        level: 'low' as const,
+        optimizationFactor: 0.4
+      };
+      setRenderQuality(newQuality);
+      
+      // Actualizar calidad en la herramienta actual
+      if (currentToolRef.current.updateRenderQuality) {
+        currentToolRef.current.updateRenderQuality(newQuality);
+      }
+    }
+  }, [currentWidth, currentHeight, updateLayerContexts]);
+
+  // Obtener posición relativa del mouse o toque
   const getPosition = useCallback(
     (clientX: number, clientY: number): Point | null => {
       const previewCanvas = layersRef.current?.previewCanvas;
       if (!previewCanvas) return null;
 
       const rect = previewCanvas.getBoundingClientRect();
-      // Calcular posición relativa considerando el factor de escala
-      const scaleX = previewCanvas.width / (rect.width * window.devicePixelRatio || 1);
-      const scaleY = previewCanvas.height / (rect.height * window.devicePixelRatio || 1);
+      
+      // Calcular posición relativa considerando el factor de escala y DPR
+      const scaleX = previewCanvas.width / rect.width;
+      const scaleY = previewCanvas.height / rect.height;
 
       return {
-        x: ((clientX - rect.left) * scaleX) / window.devicePixelRatio,
-        y: ((clientY - rect.top) * scaleY) / window.devicePixelRatio,
+        x: (clientX - rect.left) * (scaleX / window.devicePixelRatio),
+        y: (clientY - rect.top) * (scaleY / window.devicePixelRatio),
       };
     },
-    []
+    [currentWidth, currentHeight] // Dependencias actualizadas para recalcular cuando cambien dimensiones
   );
 
   // Crear versiones throttled separadas
@@ -338,27 +392,40 @@ const OptimizedCanvas = ({
       position,
       renderQuality
     );
+    
+    console.log("Mouse Down en", position.x, position.y);
   }, [getPosition, captureState, renderQuality]);
 
-  const throttledMouseMove = useCallback(
-    throttle((e: MouseEvent<HTMLCanvasElement>) => {
-      if (!isDrawing || !lastPosition || !layerContextsRef.current) return;
+  // Reemplazar la función throttled con una implementación directa
+  const handleMouseMove = useCallback((e: MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing || !lastPosition || !layerContextsRef.current) return;
 
-      const currentPosition = getPosition(e.clientX, e.clientY);
-      if (!currentPosition) return;
+    const currentPosition = getPosition(e.clientX, e.clientY);
+    if (!currentPosition) return;
 
+    // Conservar una copia del último punto para usar en continueDrawing
+    const fromPosition = { ...lastPosition };
+
+    // Verificar si hay suficiente movimiento para dibujar (evitar puntos estáticos)
+    const dx = currentPosition.x - fromPosition.x;
+    const dy = currentPosition.y - fromPosition.y;
+    const hasMovedEnough = Math.sqrt(dx * dx + dy * dy) > 0.5;
+
+    if (hasMovedEnough || currentToolRef.current.type !== "pencil") {
       // Usar la herramienta actual para continuar el dibujo
       currentToolRef.current.continueDrawing(
         layerContextsRef.current,
-        lastPosition,
+        fromPosition,  // Usar la copia, no lastPosition que podría cambiar
         currentPosition,
         renderQuality
       );
       
+      console.log("Mouse Move de", fromPosition.x, fromPosition.y, "a", currentPosition.x, currentPosition.y);
+      
+      // Solo actualizar la última posición si hubo suficiente movimiento
       setLastPosition(currentPosition);
-    }, 8),
-    [isDrawing, lastPosition, getPosition, renderQuality]
-  );
+    }
+  }, [isDrawing, lastPosition, getPosition, renderQuality]);
 
   const handleMouseUp = useCallback((e: MouseEvent<HTMLCanvasElement>) => {
     if (!isDrawing || !lastPosition || !layerContextsRef.current) return;
@@ -373,6 +440,8 @@ const OptimizedCanvas = ({
       renderQuality
     );
 
+    console.log("Mouse Up en", position.x, position.y);
+    
     setIsDrawing(false);
     setLastPosition(null);
 
@@ -400,30 +469,43 @@ const OptimizedCanvas = ({
       position,
       renderQuality
     );
+    
+    console.log("Touch Start en", position.x, position.y);
   }, [getPosition, captureState, renderQuality]);
 
-  const throttledTouchMove = useCallback(
-    throttle((e: TouchEvent<HTMLCanvasElement>) => {
-      e.preventDefault(); // Prevenir scroll en dispositivos móviles
+  // Implementar manejo directo de eventos táctiles (sin throttling)
+  const handleTouchMove = useCallback((e: TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault(); // Prevenir scroll en dispositivos móviles
 
-      if (!isDrawing || !lastPosition || !layerContextsRef.current) return;
+    if (!isDrawing || !lastPosition || !layerContextsRef.current) return;
 
-      const touch = e.touches[0];
-      const currentPosition = getPosition(touch.clientX, touch.clientY);
-      if (!currentPosition) return;
+    const touch = e.touches[0];
+    const currentPosition = getPosition(touch.clientX, touch.clientY);
+    if (!currentPosition) return;
 
+    // Conservar una copia del último punto para usar en continueDrawing
+    const fromPosition = { ...lastPosition };
+
+    // Verificar si hay suficiente movimiento para dibujar
+    const dx = currentPosition.x - fromPosition.x;
+    const dy = currentPosition.y - fromPosition.y;
+    const hasMovedEnough = Math.sqrt(dx * dx + dy * dy) > 0.5;
+
+    if (hasMovedEnough || currentToolRef.current.type !== "pencil") {
       // Usar la herramienta actual para continuar el dibujo
       currentToolRef.current.continueDrawing(
         layerContextsRef.current,
-        lastPosition,
+        fromPosition,  // Usar la copia, no lastPosition que podría cambiar
         currentPosition,
         renderQuality
       );
       
+      console.log("Touch Move de", fromPosition.x, fromPosition.y, "a", currentPosition.x, currentPosition.y);
+      
+      // Solo actualizar la última posición si hubo suficiente movimiento
       setLastPosition(currentPosition);
-    }, 8),
-    [isDrawing, lastPosition, getPosition, renderQuality]
-  );
+    }
+  }, [isDrawing, lastPosition, getPosition, renderQuality]);
 
   const handleTouchEnd = useCallback((e: TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault(); // Prevenir comportamientos no deseados
@@ -437,6 +519,8 @@ const OptimizedCanvas = ({
       lastPosition,
       renderQuality
     );
+    
+    console.log("Touch End en", lastPosition.x, lastPosition.y);
 
     setIsDrawing(false);
     setLastPosition(null);
@@ -444,14 +528,6 @@ const OptimizedCanvas = ({
     // Capturar estado después de completar una acción
     captureState();
   }, [isDrawing, lastPosition, captureState, renderQuality]);
-
-  const handleMouseMove = useCallback((e: MouseEvent<HTMLCanvasElement>) => {
-    throttledMouseMove(e);
-  }, [throttledMouseMove]);
-
-  const handleTouchMove = useCallback((e: TouchEvent<HTMLCanvasElement>) => {
-    throttledTouchMove(e);
-  }, [throttledTouchMove]);
 
   return (
     <div className={`optimized-canvas-container ${className}`}>
@@ -471,6 +547,7 @@ const OptimizedCanvas = ({
         onRedo={handleRedo}
         undoStackSize={undoStackSize}
         redoStackSize={redoStackSize}
+        responsive={responsive}
       />
 
       <CanvasLayers
@@ -484,6 +561,10 @@ const OptimizedCanvas = ({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        responsive={responsive}
+        maxWidth={maxWidth}
+        preserveAspectRatio={preserveAspectRatio}
+        onResize={handleCanvasResize}
       />
 
       <div className="canvas-info text-xs text-gray-500 mt-2">
@@ -494,7 +575,8 @@ const OptimizedCanvas = ({
             <span className="ml-4 font-mono">
               FPS: {performanceStatsRef.current.fps} | 
               Render: {performanceStatsRef.current.renderTime.toFixed(1)}ms | 
-              Calidad: {renderQuality.level}
+              Calidad: {renderQuality.level} |
+              Tamaño: {currentWidth}x{currentHeight}
             </span>
           )}
         </p>

@@ -1,9 +1,13 @@
-import express, { Request, Response } from "express";
-import { connectToDatabase } from "./services/database.service";
-import dotenv from "dotenv";
-import authRoutes from "./routes/auth.routes"; // Importar rutas de autenticación
-import passport from "./config/passport.setup"; // Importar configuración de Passport
-import { initializeEmailService } from "./services/email.service";
+import express, { Request, Response } from 'express';
+import { connectToDatabase } from './services/database.service';
+import dotenv from 'dotenv';
+import authRoutes from './routes/auth.routes'; // Importar rutas de autenticación
+import gameRoomsRoutes from './routes/gameRooms.routes'; // Importar rutas de salas de juego
+import roomConfigRoutes from './routes/roomConfig.routes'; // Importar rutas de configuración de salas
+import privateRoomsRoutes from './routes/privateRooms.routes'; // Importar rutas de salas privadas
+import waitingRoomRoutes from './routes/waitingRoom.routes'; // Importar rutas de sala de espera
+import passport from './config/passport.setup'; // Importar configuración de Passport
+import { initializeEmailService } from './services/email.service';
 
 dotenv.config(); // Cargar variables de entorno
 
@@ -15,31 +19,32 @@ app.use(passport.initialize()); // Inicializar Passport
 
 connectToDatabase()
   .then(() => {
-    console.log("Connected to MongoDB");
+    console.log('Connected to MongoDB');
 
     // Inicializar servicio de email
     initializeEmailService()
       .then(() => {
-        console.log("Email service initialized");
+        console.log('Email service initialized');
       })
       .catch((err) => {
-        console.error("Error initializing email service:", err);
+        console.error('Error initializing email service:', err);
       });
 
-    app.get("/", (req: Request, res: Response) => {
-      res.send("Hello from SketchRival Backend!");
+    app.get('/', (req: Request, res: Response) => {
+      res.send('Hello from SketchRival Backend!');
     });
 
-    app.use("/api/auth", authRoutes); // Usar rutas de autenticación
+    app.use('/api/auth', authRoutes); // Usar rutas de autenticación
+    app.use('/api/rooms', gameRoomsRoutes); // Usar rutas de salas de juego
+    app.use('/api/configs', roomConfigRoutes); // Usar rutas de configuración de salas
+    app.use('/api/private', privateRoomsRoutes); // Usar rutas de salas privadas
+    app.use('/api/waiting-room', waitingRoomRoutes); // Usar rutas de sala de espera
 
     app.listen(port, () => {
       console.log(`Backend server listening on port ${port}`);
     });
   })
   .catch((error) => {
-    console.error(
-      "Failed to start server due to database connection error:",
-      error,
-    );
+    console.error('Failed to start server due to database connection error:', error);
     process.exit(1);
   });

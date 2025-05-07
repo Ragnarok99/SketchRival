@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { DrawingToolType } from "./tools/DrawingTool";
 import UndoRedoButtons from "./UndoRedoButtons";
+import ExportDialog from "./ExportDialog";
+import { ImageFormat, ExportOptions } from "./utils/ImageExporter";
 
 // Interfaz para las propiedades del componente Toolbar
 interface ToolbarProps {
@@ -22,6 +24,10 @@ interface ToolbarProps {
   onRedo: () => void;
   undoStackSize?: number;
   redoStackSize?: number;
+  // Propiedades para exportación
+  onExport?: (format: ImageFormat, options: ExportOptions) => void;
+  // Propiedades para adaptación responsiva
+  responsive?: boolean;
 }
 
 // Interfaz para información de herramientas
@@ -49,9 +55,50 @@ const Toolbar = ({
   onRedo,
   undoStackSize = 0,
   redoStackSize = 0,
+  onExport,
+  responsive,
 }: ToolbarProps) => {
   // Estado para mostrar información contextual de la herramienta activa
   const [showToolInfo, setShowToolInfo] = useState(true);
+  // Estado para mostrar el diálogo de exportación
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  // Estado para mostrar menú colapsado en dispositivos móviles
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  // Estado para controlar qué sección está expandida en vista móvil
+  const [expandedSection, setExpandedSection] = useState<'tools' | 'actions' | 'settings' | null>(null);
+  // Estado para detectar ancho de pantalla
+  const [isMobileView, setIsMobileView] = useState(false);
+  // Estado para detectar orientación
+  const [isPortrait, setIsPortrait] = useState(false);
+  
+  // Detectar tamaño de pantalla y orientación para adaptación responsiva
+  useEffect(() => {
+    if (!responsive) return;
+    
+    const checkScreenSize = () => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      setIsMobileView(width < 768);
+      setIsPortrait(height > width);
+      
+      // En pantallas muy pequeñas en portrait, expandir automáticamente las herramientas
+      if (width < 480 && height > width) {
+        setExpandedSection('tools');
+      }
+    };
+    
+    // Comprobar tamaño inicial
+    checkScreenSize();
+    
+    // Escuchar cambios de tamaño y orientación
+    window.addEventListener('resize', checkScreenSize);
+    window.addEventListener('orientationchange', checkScreenSize);
+    
+    return () => {
+      window.removeEventListener('resize', checkScreenSize);
+      window.removeEventListener('orientationchange', checkScreenSize);
+    };
+  }, [responsive]);
   
   // Lista de herramientas disponibles con información extendida
   const tools: ToolInfo[] = [
@@ -165,6 +212,12 @@ const Toolbar = ({
         // Prevenir comportamiento por defecto (ej. escribir en inputs)
         e.preventDefault();
       }
+      
+      // Atajo para exportar (tecla 'S')
+      if (key === 'S' && onExport) {
+        setShowExportDialog(true);
+        e.preventDefault();
+      }
     };
 
     // Añadir listener global
@@ -174,194 +227,329 @@ const Toolbar = ({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [tools, setActiveTool]);
+  }, [tools, setActiveTool, onExport, setShowExportDialog]);
+
+  // Alternar la sección expandida en vista móvil
+  const toggleSection = (section: 'tools' | 'actions' | 'settings') => {
+    if (expandedSection === section) {
+      setExpandedSection(null);
+    } else {
+      setExpandedSection(section);
+    }
+  };
+
+  // Determinar la orientación de la barra de herramientas en móviles
+  const getToolbarLayout = () => {
+    // En pantallas muy pequeñas en portrait, mostrar en vertical
+    if (isMobileView && isPortrait && window.innerWidth < 480) {
+      return 'vertical';
+    }
+    // En otros casos, horizontal
+    return 'horizontal';
+  };
+  
+  const isVerticalLayout = getToolbarLayout() === 'vertical';
 
   return (
-    <div className="drawing-toolbar p-4 bg-white rounded-lg shadow-md mb-4 transition-all duration-200">
-      {/* Sección superior: herramientas y acciones */}
-      <div className="flex flex-col md:flex-row justify-between mb-4 gap-4">
-        {/* Panel de herramientas de dibujo */}
-        <div className="tools-panel bg-gray-50 p-3 rounded-lg">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Herramientas</h3>
-          <div className="tools-container flex flex-wrap gap-2">
-            {tools.map((tool) => (
-              <button
-                key={tool.id}
-                className={`tool-button flex flex-col items-center justify-center p-2 rounded transition-all duration-200 ${
-                  activeTool === tool.id
-                    ? "bg-blue-500 text-white scale-110 shadow-md"
-                    : "bg-white hover:bg-gray-100 text-gray-700 hover:scale-105"
-                }`}
-                onClick={() => setActiveTool(tool.id)}
-                title={`${tool.name} (${tool.shortcut})`}
-                aria-label={tool.name}
-              >
-                <div className="tool-icon w-6 h-6 flex items-center justify-center">
-                  {tool.icon}
-                </div>
-                <span className="tool-name text-xs mt-1">{tool.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-        
-        {/* Panel de acciones (deshacer/rehacer y limpiar) */}
-        <div className="actions-panel bg-gray-50 p-3 rounded-lg">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Acciones</h3>
-          <div className="flex items-center gap-4">
-            <UndoRedoButtons
-              canUndo={canUndo}
-              canRedo={canRedo}
-              onUndo={onUndo}
-              onRedo={onRedo}
-              undoStackSize={undoStackSize}
-              redoStackSize={redoStackSize}
-            />
-            
-            <button
-              onClick={onClear}
-              className="ml-2 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded transition-colors duration-200 flex items-center gap-1"
-              title="Limpiar canvas (doble clic para confirmar)"
-              onDoubleClick={onClear}
+    <div className={`drawing-toolbar p-2 md:p-4 bg-white rounded-lg shadow-md mb-4 transition-all duration-200 ${isVerticalLayout ? 'floating-toolbar' : ''}`}>
+      {/* Botón de menú móvil (visible solo en pantallas pequeñas) */}
+      {isMobileView && (
+        <div className="mobile-menu-toggle mb-2">
+          <button 
+            className="flex items-center justify-between w-full bg-gray-50 p-2 rounded-lg"
+            onClick={() => setShowMobileMenu(!showMobileMenu)}
+          >
+            <span className="font-medium">Menú de dibujo {showMobileMenu ? '(cerrar)' : '(abrir)'}</span>
+            <svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              width="20" 
+              height="20" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              strokeWidth="2"
+              className={`transition-transform ${showMobileMenu ? 'rotate-180' : ''}`}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 6h18"/>
-                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
-                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-              </svg>
-              Limpiar
-            </button>
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Contenido del toolbar (colapsable en móvil) */}
+      <div className={`toolbar-content ${isMobileView && !showMobileMenu ? 'hidden' : 'block'}`}>
+        {/* Sección superior: herramientas y acciones - adaptable a diferentes tamaños */}
+        <div className={`${isVerticalLayout ? 'flex flex-col' : 'flex flex-col lg:flex-row'} justify-between mb-4 gap-4`}>
+          {/* Panel de herramientas de dibujo - colapsable en móvil */}
+          <div className="tools-panel bg-gray-50 p-3 rounded-lg">
+            {isMobileView ? (
+              <button 
+                className="flex items-center justify-between w-full mb-2"
+                onClick={() => toggleSection('tools')}
+              >
+                <h3 className="text-sm font-medium text-gray-700">Herramientas</h3>
+                <svg 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  width="16" 
+                  height="16" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2"
+                  className={`transition-transform ${expandedSection === 'tools' ? 'rotate-180' : ''}`}
+                >
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+            ) : (
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Herramientas</h3>
+            )}
+            
+            <div className={`tools-container flex flex-wrap gap-2 ${isMobileView && expandedSection !== 'tools' ? 'hidden' : 'block'}`}>
+              {tools.map((tool) => (
+                <button
+                  key={tool.id}
+                  className={`tool-button flex flex-col items-center justify-center p-2 rounded transition-all duration-200 ${
+                    activeTool === tool.id
+                      ? "bg-blue-500 text-white scale-110 shadow-md"
+                      : "bg-white hover:bg-gray-100 text-gray-700 hover:scale-105"
+                  } ${isVerticalLayout ? 'w-full flex-row justify-start gap-2' : ''}`}
+                  onClick={() => {
+                    setActiveTool(tool.id);
+                    // En móvil, colapsar la sección de herramientas después de seleccionar una
+                    if (isMobileView && isPortrait && window.innerWidth < 480) {
+                      setExpandedSection(null);
+                    }
+                  }}
+                  title={`${tool.name} (${tool.shortcut})`}
+                  aria-label={tool.name}
+                >
+                  <div className="tool-icon w-6 h-6 flex items-center justify-center">
+                    {tool.icon}
+                  </div>
+                  <span className="tool-name text-xs mt-1">{tool.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Panel de acciones (deshacer/rehacer y limpiar) - colapsable en móvil */}
+          <div className="actions-panel bg-gray-50 p-3 rounded-lg">
+            {isMobileView ? (
+              <button 
+                className="flex items-center justify-between w-full mb-2"
+                onClick={() => toggleSection('actions')}
+              >
+                <h3 className="text-sm font-medium text-gray-700">Acciones</h3>
+                <svg 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  width="16" 
+                  height="16" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2"
+                  className={`transition-transform ${expandedSection === 'actions' ? 'rotate-180' : ''}`}
+                >
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+            ) : (
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Acciones</h3>
+            )}
+            
+            <div className={`flex flex-wrap items-center gap-2 ${isMobileView && expandedSection !== 'actions' ? 'hidden' : 'flex'} ${isVerticalLayout ? 'flex-col w-full' : ''}`}>
+              <UndoRedoButtons
+                canUndo={canUndo}
+                canRedo={canRedo}
+                onUndo={onUndo}
+                onRedo={onRedo}
+                undoStackSize={undoStackSize}
+                redoStackSize={redoStackSize}
+                isVertical={isVerticalLayout}
+              />
+              
+              <button
+                onClick={onClear}
+                className={`bg-red-500 hover:bg-red-600 text-white py-2 px-3 rounded transition-colors duration-200 flex items-center gap-1 ${isVerticalLayout ? 'w-full justify-center' : ''}`}
+                title="Limpiar canvas (doble clic para confirmar)"
+                onDoubleClick={onClear}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18"/>
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+                </svg>
+                <span className={isVerticalLayout ? 'inline' : 'hidden sm:inline'}>Limpiar</span>
+              </button>
+
+              {/* Botón de exportar (visible solo si se proporciona la función onExport) */}
+              {onExport && (
+                <button
+                  onClick={() => setShowExportDialog(true)}
+                  className={`bg-green-500 hover:bg-green-600 text-white py-2 px-3 rounded transition-colors duration-200 flex items-center gap-1 ${isVerticalLayout ? 'w-full justify-center' : ''}`}
+                  title="Exportar imagen (S)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  <span className={isVerticalLayout ? 'inline' : 'hidden sm:inline'}>Exportar</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-      
-      {/* Información contextual de la herramienta activa */}
-      {activeToolInfo && showToolInfo && (
-        <div className="tool-info bg-blue-50 p-3 rounded-lg mb-4 transition-all duration-300 border border-blue-200">
-          <div className="flex justify-between items-start">
+
+        {/* Sección de configuración (colores, tamaño, opacidad) */}
+        <div className="settings-panel bg-gray-50 p-3 rounded-lg">
+          {isMobileView ? (
+            <button 
+              className="flex items-center justify-between w-full mb-2"
+              onClick={() => toggleSection('settings')}
+            >
+              <h3 className="text-sm font-medium text-gray-700">Configuración</h3>
+              <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width="16" 
+                height="16" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2"
+                className={`transition-transform ${expandedSection === 'settings' ? 'rotate-180' : ''}`}
+              >
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+          ) : (
+            <h3 className="text-sm font-medium text-gray-700 mb-2">Configuración</h3>
+          )}
+          
+          <div className={`settings-controls grid ${isVerticalLayout ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4 ${isMobileView && expandedSection !== 'settings' ? 'hidden' : 'grid'}`}>
+            {/* Control de color - visible solo cuando no es un borrador */}
+            {showColorControls && (
+              <div className="color-control">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Color
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                    className="w-12 h-8 cursor-pointer rounded border border-gray-300"
+                  />
+                  <span className="text-sm text-gray-500">{color}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Control de grosor */}
+            <div className="line-width-control">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Grosor: {lineWidth}px
+              </label>
+              <input
+                type="range"
+                min="1"
+                max="50"
+                value={lineWidth}
+                onChange={(e) => setLineWidth(Number(e.target.value))}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+
+            {/* Control de opacidad - visible solo cuando no es un borrador */}
+            {showColorControls && (
+              <div className="opacity-control">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Opacidad: {Math.round(opacity * 100)}%
+                </label>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1"
+                  step="0.05"
+                  value={opacity}
+                  onChange={(e) => setOpacity(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Información de la herramienta activa - oculta en modo vertical para ahorrar espacio */}
+        {showToolInfo && activeToolInfo && !isVerticalLayout && (
+          <div className="tool-info bg-blue-50 p-3 rounded-lg mt-4 flex items-start">
+            <div className="tool-icon bg-white p-2 rounded-full mr-3">
+              {activeToolInfo.icon}
+            </div>
             <div>
-              <h3 className="text-lg font-medium text-blue-800">
-                {activeToolInfo.name}
-                <span className="ml-2 text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded">
-                  Atajo: {activeToolInfo.shortcut}
+              <h4 className="font-medium text-blue-800">
+                {activeToolInfo.name} 
+                <span className="text-xs ml-2 text-blue-600">
+                  (Atajo: {activeToolInfo.shortcut})
                 </span>
-              </h3>
-              <p className="text-sm text-blue-700 mt-1">{activeToolInfo.description}</p>
+              </h4>
+              <p className="text-sm text-blue-700">{activeToolInfo.description}</p>
             </div>
             <button 
-              onClick={() => setShowToolInfo(false)} 
-              className="text-blue-500 hover:text-blue-700"
-              aria-label="Cerrar información"
+              className="ml-auto text-blue-500 hover:text-blue-700"
+              onClick={() => setShowToolInfo(false)}
+              aria-label="Cerrar información de herramienta"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
               </svg>
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Panel de configuración de herramientas */}
-      <div className="settings-container bg-gray-50 p-3 rounded-lg">
-        <h3 className="text-sm font-medium text-gray-700 mb-2">Configuración</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Selector de color (solo visible para herramientas que no son borradores) */}
-          {showColorControls && (
-            <div className="color-picker">
-              <label
-                htmlFor="color"
-                className="block text-sm font-medium text-gray-700 mb-2"
-              >
-                Color
-              </label>
-              <div className="flex items-center">
-                <input
-                  type="color"
-                  id="color"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  className="w-10 h-10 rounded-full cursor-pointer border border-gray-300"
-                />
-                <span className="ml-2 text-sm text-gray-500">{color}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Control de grosor */}
-          <div className="line-width">
-            <label
-              htmlFor="lineWidth"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              {activeTool.startsWith("eraser") ? "Tamaño del borrador" : "Grosor"}
-            </label>
-            <div className="flex items-center">
-              <input
-                type="range"
-                id="lineWidth"
-                min="1"
-                max={activeTool === "eraser-area" ? "200" : "50"}
-                value={lineWidth}
-                onChange={(e) => setLineWidth(Number(e.target.value))}
-                className="w-full accent-blue-500"
-              />
-              <span className="ml-2 text-sm text-gray-500 w-12 text-center">
-                {lineWidth}px
-              </span>
+        )}
+        
+        {/* Botón flotante de herramienta activa (solo en modo vertical) */}
+        {isVerticalLayout && (
+          <div className="fixed bottom-4 right-4 bg-blue-500 text-white rounded-full shadow-lg p-3 z-50">
+            <div className="tool-icon w-7 h-7 flex items-center justify-center">
+              {activeToolInfo?.icon}
             </div>
           </div>
-
-          {/* Control de opacidad (solo visible para herramientas que no son borradores) */}
-          {showColorControls && (
-            <div className="opacity">
-              <label
-                htmlFor="opacity"
-                className="block text-sm font-medium text-gray-700 mb-2"
-              >
-                Opacidad
-              </label>
-              <div className="flex items-center">
-                <input
-                  type="range"
-                  id="opacity"
-                  min="0.1"
-                  max="1"
-                  step="0.1"
-                  value={opacity}
-                  onChange={(e) => setOpacity(Number(e.target.value))}
-                  className="w-full accent-blue-500"
-                />
-                <span className="ml-2 text-sm text-gray-500 w-12 text-center">
-                  {Math.round(opacity * 100)}%
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
+        )}
       </div>
-      
-      {/* Mensajes específicos para herramientas especiales */}
-      {activeTool.startsWith("eraser") && (
-        <div className="eraser-info mt-3 p-2 bg-blue-50 rounded border border-blue-200">
-          <p className="text-sm text-blue-800">
-            {activeTool === "eraser-precision" 
-              ? "Borrador de precisión: Arrastra para borrar con precisión." 
-              : "Borrador de área: Haz clic y arrastra para seleccionar el área a borrar."}
-          </p>
-        </div>
+
+      {/* Diálogo de exportación */}
+      {showExportDialog && onExport && (
+        <ExportDialog
+          isOpen={showExportDialog}
+          onClose={() => setShowExportDialog(false)}
+          onExport={(format, options) => {
+            onExport(format, options);
+            setShowExportDialog(false);
+          }}
+        />
       )}
-
-      {/* Atajos de teclado globales */}
-      <div className="keyboard-shortcuts mt-3 text-xs text-gray-500">
-        <p>Atajos globales: <span className="font-medium">Ctrl+Z</span> (Deshacer), <span className="font-medium">Ctrl+Y</span> (Rehacer), <span className="font-medium">Ctrl+P</span> (Estadísticas)</p>
-        <p>Herramientas: {tools.map(t => (
-          <span key={t.shortcut} className="ml-1">
-            <span className="font-medium">{t.shortcut}</span> ({t.name})
-          </span>
-        ))}
-        </p>
-      </div>
+      
+      {/* Estilos para toolbar vertical y flotante en móviles pequeños */}
+      {isVerticalLayout && (
+        <style jsx global>{`
+          .floating-toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+            z-index: 1000;
+            border-radius: 0 0 8px 8px;
+          }
+          
+          .canvas-layers-container {
+            margin-top: 65px !important;
+          }
+        `}</style>
+      )}
     </div>
   );
 };

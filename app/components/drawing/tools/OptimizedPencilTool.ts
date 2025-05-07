@@ -8,22 +8,29 @@ import { throttle } from "../utils/performanceUtils";
 export class OptimizedPencilTool extends BaseDrawingTool {
   private lastPoint: Point | null = null;
   private pointsBuffer: Point[] = [];
-  private bufferThreshold = 5;
-  private throttledRender: (points: Point[]) => void;
+  private bufferThreshold = 4;
+  private debugMode = true; // Activar para depuración
+  private currentContexts: LayerContexts | null = null;
+  private pathStarted = false;
 
   constructor(options: DrawingToolOptions) {
     super("pencil", options);
-    // Crear función de dibujo con throttling para mejorar rendimiento
-    this.throttledRender = throttle(this.renderBuffer.bind(this), 16); // ~60fps
   }
 
   /**
    * Configura los contextos para la herramienta de lápiz
    */
-  protected setupContexts(): void {
+  initialize(contexts: LayerContexts): void {
+    super.initialize(contexts);
     // Reiniciar estado interno
     this.lastPoint = null;
     this.pointsBuffer = [];
+    this.pathStarted = false;
+    this.currentContexts = contexts;
+    
+    if (this.debugMode) {
+      console.log("OptimizedPencilTool.initialize");
+    }
   }
 
   /**
@@ -42,6 +49,13 @@ export class OptimizedPencilTool extends BaseDrawingTool {
     this.isDrawing = true;
     this.lastPoint = { ...point };
     this.pointsBuffer = [{ ...point }];
+    this.pathStarted = false;
+    this.currentContexts = contexts;
+
+    // Limpiar el contexto de previsualización
+    if (contexts.previewCtx) {
+      contexts.clearLayer("preview");
+    }
 
     // Usar contexto de previsualización para dibujar
     const ctx = contexts.previewCtx;
@@ -55,9 +69,9 @@ export class OptimizedPencilTool extends BaseDrawingTool {
     ctx.arc(point.x, point.y, this.options.lineWidth / 4, 0, Math.PI * 2);
     ctx.fill();
     
-    // Preparar para continuar dibujando
-    ctx.beginPath();
-    ctx.moveTo(point.x, point.y);
+    if (this.debugMode) {
+      console.log("OptimizedPencilTool.startDrawing en", point.x, point.y);
+    }
   }
 
   /**
@@ -69,10 +83,22 @@ export class OptimizedPencilTool extends BaseDrawingTool {
     to: Point,
     renderQuality?: RenderQuality
   ): void {
-    if (!this.isDrawing || !this.lastPoint) return;
+    if (!this.isDrawing) return;
     
     if (renderQuality) {
       this.renderQuality = renderQuality;
+    }
+
+    this.currentContexts = contexts;
+    
+    // Verificar si los puntos son diferentes
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Si la distancia es demasiado pequeña, ignorar este evento
+    if (distance < 0.5 && this.pointsBuffer.length > 1) {
+      return;
     }
 
     // Añadir el nuevo punto al buffer
@@ -81,9 +107,13 @@ export class OptimizedPencilTool extends BaseDrawingTool {
     // Actualizar último punto
     this.lastPoint = { ...to };
 
-    // Renderizar el buffer cuando alcance el umbral
-    if (this.pointsBuffer.length >= this.bufferThreshold) {
-      this.throttledRender(this.pointsBuffer);
+    if (this.debugMode) {
+      console.log("OptimizedPencilTool.continueDrawing de", from.x, from.y, "a", to.x, to.y, "buffer:", this.pointsBuffer.length);
+    }
+
+    // Renderizar inmediatamente si hay suficientes puntos o si la distancia es significativa
+    if (this.pointsBuffer.length >= this.bufferThreshold || distance > 5) {
+      this.renderBuffer(contexts);
     }
   }
 
@@ -103,8 +133,14 @@ export class OptimizedPencilTool extends BaseDrawingTool {
       this.pointsBuffer.push({ ...point });
     }
 
-    // Renderizar los puntos pendientes sin throttling
-    this.renderBuffer(this.pointsBuffer, contexts);
+    // Renderizar cualquier punto pendiente
+    if (this.pointsBuffer.length > 0) {
+      this.renderBuffer(contexts);
+    }
+    
+    if (this.debugMode) {
+      console.log("OptimizedPencilTool.endDrawing en", point.x, point.y);
+    }
 
     // Transferir el resultado de la capa de previsualización a la capa principal
     const previewCtx = contexts.previewCtx;
@@ -112,8 +148,11 @@ export class OptimizedPencilTool extends BaseDrawingTool {
     
     if (previewCtx && mainCtx) {
       // Copiar el contenido de la capa de previsualización a la capa principal
-      const canvas = previewCtx.canvas;
-      mainCtx.drawImage(canvas, 0, 0);
+      try {
+        mainCtx.drawImage(previewCtx.canvas, 0, 0);
+      } catch (error) {
+        console.error("Error al transferir dibujo a capa principal:", error);
+      }
       
       // Limpiar la capa de previsualización
       contexts.clearLayer("preview");
@@ -123,91 +162,49 @@ export class OptimizedPencilTool extends BaseDrawingTool {
     this.isDrawing = false;
     this.lastPoint = null;
     this.pointsBuffer = [];
+    this.pathStarted = false;
+    this.currentContexts = null;
   }
 
   /**
    * Renderiza los puntos almacenados en el buffer
-   * @param points Puntos a renderizar
-   * @param customContexts Contextos opcionales (si no se especifican, usa los almacenados)
    */
-  private renderBuffer(
-    points: Point[],
-    customContexts?: LayerContexts
-  ): void {
-    if (points.length < 2) return;
-
-    const contexts = customContexts || this.contexts;
-    if (!contexts) return;
+  private renderBuffer(contexts: LayerContexts): void {
+    // Verificar que tenemos suficientes puntos para dibujar
+    if (this.pointsBuffer.length < 2) return;
 
     const ctx = contexts.previewCtx;
     if (!ctx) return;
 
     // Configurar contexto
     this.applyDrawingSettings(ctx);
-
-    // Si hay muchos puntos, optimizar según nivel de calidad
-    if (points.length > 20 && this.renderQuality.level !== 'high') {
-      const step = this.renderQuality.level === 'low' ? 4 : 2;
-      const reducedPoints = [];
-      
-      for (let i = 0; i < points.length; i += step) {
-        reducedPoints.push(points[i]);
-      }
-      
-      // Asegurar que se incluya el último punto
-      if (reducedPoints[reducedPoints.length - 1] !== points[points.length - 1]) {
-        reducedPoints.push(points[points.length - 1]);
-      }
-      
-      points = reducedPoints;
+    
+    if (!this.pathStarted) {
+      // Comenzar un nuevo camino solo si no hemos empezado ya
+      ctx.beginPath();
+      ctx.moveTo(this.pointsBuffer[0].x, this.pointsBuffer[0].y);
+      this.pathStarted = true;
     }
 
-    // Dibujar líneas con curvas suavizadas
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-
-    // Dibujar curvas usando puntos de control para suavizar
-    for (let i = 1; i < points.length - 1; i++) {
-      const current = points[i];
-      const next = points[i + 1];
-      
-      // Punto medio entre puntos para curva cuadrática
-      const midX = (current.x + next.x) / 2;
-      const midY = (current.y + next.y) / 2;
-      
-      ctx.quadraticCurveTo(current.x, current.y, midX, midY);
+    // Dibujar líneas entre los puntos del buffer
+    for (let i = 1; i < this.pointsBuffer.length; i++) {
+      const p = this.pointsBuffer[i];
+      ctx.lineTo(p.x, p.y);
     }
-
-    // Manejar el último punto si existe
-    if (points.length > 1) {
-      const lastPoint = points[points.length - 1];
-      ctx.lineTo(lastPoint.x, lastPoint.y);
-    }
-
-    // Aplicar trazo
+    
+    // Aplicar el trazo
     ctx.stroke();
     
-    // Reiniciar buffer después de renderizar
-    this.pointsBuffer = [points[points.length - 1]];
-  }
-
-  /**
-   * Actualiza la configuración de calidad de renderizado
-   */
-  updateRenderQuality(quality: RenderQuality): void {
-    super.updateRenderQuality(quality);
+    // Comenzar un nuevo camino desde el último punto
+    ctx.beginPath();
+    ctx.moveTo(this.pointsBuffer[this.pointsBuffer.length - 1].x, 
+               this.pointsBuffer[this.pointsBuffer.length - 1].y);
     
-    // Ajustar buffer threshold según calidad
-    switch (quality.level) {
-      case 'high':
-        this.bufferThreshold = 2;
-        break;
-      case 'medium':
-        this.bufferThreshold = 5;
-        break;
-      case 'low':
-        this.bufferThreshold = 8;
-        break;
+    // Mantener solo el último punto en el buffer para continuar desde ahí
+    this.pointsBuffer = [this.pointsBuffer[this.pointsBuffer.length - 1]];
+    
+    if (this.debugMode) {
+      console.log("OptimizedPencilTool.renderBuffer - Pintando trazo");
     }
   }
 
@@ -216,17 +213,30 @@ export class OptimizedPencilTool extends BaseDrawingTool {
    */
   cleanup(): void {
     // Renderizar cualquier punto pendiente antes de limpiar
-    if (this.isDrawing && this.contexts && this.pointsBuffer.length > 0) {
-      this.renderBuffer(this.pointsBuffer);
+    if (this.isDrawing && this.currentContexts && this.pointsBuffer.length > 0) {
+      this.renderBuffer(this.currentContexts);
       
       // Transferir a la capa principal
-      const { previewCtx, mainCtx } = this.contexts;
+      const { previewCtx, mainCtx } = this.currentContexts;
       if (previewCtx && mainCtx) {
-        mainCtx.drawImage(previewCtx.canvas, 0, 0);
-        this.contexts.clearLayer("preview");
+        try {
+          mainCtx.drawImage(previewCtx.canvas, 0, 0);
+        } catch (error) {
+          console.error("Error al transferir dibujo durante limpieza:", error);
+        }
+        this.currentContexts.clearLayer("preview");
       }
     }
     
+    // Reiniciar estado completamente
+    this.lastPoint = null;
+    this.pointsBuffer = [];
+    this.pathStarted = false;
+    this.currentContexts = null;
     super.cleanup();
+    
+    if (this.debugMode) {
+      console.log("OptimizedPencilTool.cleanup");
+    }
   }
 } 

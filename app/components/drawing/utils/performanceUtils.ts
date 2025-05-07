@@ -13,40 +13,37 @@ export function throttle<T extends (...args: any[]) => any>(
   limit: number
 ): (...args: Parameters<T>) => void {
   let lastCall = 0;
+  let timeout: NodeJS.Timeout | null = null;
   let lastArgs: Parameters<T> | null = null;
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-
-  return function throttled(this: any, ...args: Parameters<T>) {
+  
+  return function(...args: Parameters<T>): void {
     const now = Date.now();
-    const context = this;
-
-    if (now - lastCall < limit) {
-      // Guardar los últimos argumentos para una posible ejecución final
-      lastArgs = args;
-
-      // Si no hay un timeout programado, configurar uno para asegurar que la última llamada se ejecuta
-      if (!timeout) {
-        timeout = setTimeout(() => {
-          timeout = null;
-          lastCall = Date.now();
-          if (lastArgs) {
-            func.apply(context, lastArgs);
-            lastArgs = null;
-          }
-        }, limit - (now - lastCall));
+    const timeElapsed = now - lastCall;
+    
+    // Guardar los últimos argumentos
+    lastArgs = args;
+    
+    // Si ha pasado suficiente tiempo, ejecutar inmediatamente
+    if (timeElapsed >= limit) {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
       }
+      lastCall = now;
+      func(...args);
       return;
     }
-
-    // Si ha pasado el tiempo límite, ejecutar inmediatamente
-    lastCall = now;
-    func.apply(context, args);
-    lastArgs = null;
-
-    // Limpiar cualquier timeout pendiente
-    if (timeout) {
-      clearTimeout(timeout);
-      timeout = null;
+    
+    // Si no, programar para ejecutar cuando se cumpla el límite
+    if (!timeout) {
+      timeout = setTimeout(() => {
+        lastCall = Date.now();
+        timeout = null;
+        if (lastArgs) {
+          func(...lastArgs);
+          lastArgs = null;
+        }
+      }, limit - timeElapsed);
     }
   };
 }
@@ -297,4 +294,30 @@ export class PerformanceMonitor {
   reset(): void {
     this.framesTimes = [];
   }
+}
+
+/**
+ * Asegura que una función solo se ejecute una vez por cada
+ * ciclo de animación (requestAnimationFrame)
+ * @param func Función a ejecutar
+ * @returns Función optimizada
+ */
+export function rafThrottle<T extends (...args: any[]) => any>(
+  func: T
+): (...args: Parameters<T>) => void {
+  let rafId: number | null = null;
+  let lastArgs: Parameters<T> | null = null;
+  
+  return function(...args: Parameters<T>): void {
+    lastArgs = args;
+    
+    if (!rafId) {
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (lastArgs) {
+          func(...lastArgs);
+        }
+      });
+    }
+  };
 } 

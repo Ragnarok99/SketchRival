@@ -1,4 +1,4 @@
-import rateLimit from "express-rate-limit";
+import rateLimit from 'express-rate-limit';
 
 // Limitar intentos de login para prevenir ataques de fuerza bruta
 export const loginLimiter = rateLimit({
@@ -7,8 +7,7 @@ export const loginLimiter = rateLimit({
   standardHeaders: true, // Devolver info rate limit en los headers `RateLimit-*`
   legacyHeaders: false, // Deshabilitar los headers `X-RateLimit-*`
   message: {
-    message:
-      "Demasiados intentos de inicio de sesión. Por favor, inténtalo de nuevo más tarde.",
+    message: 'Demasiados intentos de inicio de sesión. Por favor, inténtalo de nuevo más tarde.',
   },
 });
 
@@ -19,8 +18,7 @@ export const forgotPasswordLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: {
-    message:
-      "Demasiadas solicitudes de recuperación de contraseña. Por favor, inténtalo de nuevo más tarde.",
+    message: 'Demasiadas solicitudes de recuperación de contraseña. Por favor, inténtalo de nuevo más tarde.',
   },
 });
 
@@ -31,8 +29,7 @@ export const resetPasswordLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: {
-    message:
-      "Demasiados intentos de restablecimiento de contraseña. Por favor, inténtalo de nuevo más tarde.",
+    message: 'Demasiados intentos de restablecimiento de contraseña. Por favor, inténtalo de nuevo más tarde.',
   },
 });
 
@@ -43,7 +40,28 @@ export const registerLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: {
-    message:
-      "Demasiados intentos de registro. Por favor, inténtalo de nuevo más tarde.",
+    message: 'Demasiados intentos de registro. Por favor, inténtalo de nuevo más tarde.',
+  },
+});
+
+// Limitar solicitudes generales a las operaciones de listar/consultar salas
+export const roomsLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minuto
+  max: 30, // 30 solicitudes por minuto
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: 'Demasiadas solicitudes a la API de salas. Por favor, inténtalo de nuevo más tarde.',
+  },
+});
+
+// Limitar acciones específicas sobre salas (crear, unirse, actualizar, etc.)
+export const roomActionLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minuto
+  max: 10, // 10 acciones por minuto
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: 'Demasiadas acciones en salas. Por favor, inténtalo de nuevo más tarde.',
   },
 });
