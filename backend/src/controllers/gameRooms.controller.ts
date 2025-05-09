@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { IRequestWithUser } from '../middleware/auth.middleware';
 import * as gameRoomsService from '../services/gameRooms.service';
 import mongoose from 'mongoose';
-import { GameRoomModel } from '../models';
+import { GameRoomModel, GameRoomType } from '../models';
 
 // Crear una nueva sala
 export const createRoom = async (req: IRequestWithUser, res: Response) => {
@@ -12,14 +12,21 @@ export const createRoom = async (req: IRequestWithUser, res: Response) => {
       return res.status(401).json({ message: 'No autenticado' });
     }
 
-    const { name, type, configuration } = req.body;
+    const { name, type, configuration, accessCode } = req.body;
     const userId = req.user.userId;
+
+    // Verificar si se está creando una sala privada sin código
+    if (type === GameRoomType.PRIVATE && !accessCode) {
+      // El middleware pre-save generará uno automáticamente
+      console.log('Creando sala privada con código autogenerado');
+    }
 
     const room = await gameRoomsService.createRoom({
       name,
       type,
       configuration,
       hostId: userId,
+      accessCode,
     });
 
     return res.status(201).json({
@@ -135,16 +142,13 @@ export const joinRoom = async (req: IRequestWithUser, res: Response) => {
     }
 
     // Validar acceso a sala privada si es necesario
-    if (accessCode) {
-      // Obtener la sala y verificar el código de acceso
-      const room = await GameRoomModel.findById(id);
-      if (!room) {
-        return res.status(404).json({ message: 'Sala no encontrada' });
+    try {
+      await gameRoomsService.validateRoomAccessCode(id, accessCode);
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(403).json({ message: error.message });
       }
-
-      if (room.type === 'private' && room.accessCode !== accessCode) {
-        return res.status(403).json({ message: 'Código de acceso incorrecto' });
-      }
+      return res.status(403).json({ message: 'Error de validación de acceso' });
     }
 
     const player = await gameRoomsService.addUserToRoom({
@@ -220,5 +224,172 @@ export const closeRoom = async (req: IRequestWithUser, res: Response) => {
       return res.status(400).json({ message: error.message });
     }
     return res.status(500).json({ message: 'Error desconocido al cerrar la sala' });
+  }
+};
+
+/**
+ * Validar código de acceso sin unirse a la sala
+ */
+export const validateAccessCode = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { accessCode } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'ID de sala inválido' });
+    }
+
+    if (!accessCode) {
+      return res.status(400).json({ message: 'Se requiere código de acceso' });
+    }
+
+    // Obtener IP del cliente para limitar intentos
+    const ipAddress = req.ip || req.socket.remoteAddress || 'unknown';
+
+    try {
+      const room = await gameRoomsService.validateRoomAccessCode(id, accessCode, ipAddress);
+
+      return res.status(200).json({
+        valid: true,
+        message: 'Código de acceso válido',
+        roomName: room.name,
+        playersCount: room.players.length,
+        maxPlayers: room.configuration.maxPlayers,
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(403).json({
+          valid: false,
+          message: error.message,
+        });
+      }
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      return res.status(500).json({ message: error.message });
+    }
+    return res.status(500).json({ message: 'Error desconocido al validar código' });
+  }
+};
+
+/**
+ * Buscar sala por código de acceso
+ */
+export const findRoomByCode = async (req: Request, res: Response) => {
+  try {
+    const { code } = req.params;
+
+    if (!code || code.length !== 6) {
+      return res.status(400).json({ message: 'Código de sala inválido' });
+    }
+
+    try {
+      const room = await gameRoomsService.findRoomByAccessCode(code);
+
+      return res.status(200).json({
+        found: true,
+        roomId: room._id,
+        roomName: room.name,
+        playersCount: room.players.length,
+        maxPlayers: room.configuration.maxPlayers,
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(404).json({
+          found: false,
+          message: error.message,
+        });
+      }
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      return res.status(500).json({ message: error.message });
+    }
+    return res.status(500).json({ message: 'Error desconocido al buscar sala' });
+  }
+};
+
+/**
+ * Cambiar el tipo de una sala (pública/privada)
+ */
+export const changeRoomType = async (req: IRequestWithUser, res: Response) => {
+  try {
+    // Verificar autenticación
+    if (!req.user) {
+      return res.status(401).json({ message: 'No autenticado' });
+    }
+
+    const { id } = req.params;
+    const { type, accessCode } = req.body;
+    const userId = req.user.userId;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'ID de sala inválido' });
+    }
+
+    if (!type || !Object.values(GameRoomType).includes(type)) {
+      return res.status(400).json({ message: 'Tipo de sala inválido' });
+    }
+
+    // Si cambiamos a privada, verificar que el código no esté en uso
+    if (type === GameRoomType.PRIVATE && accessCode) {
+      const isInUse = await gameRoomsService.isAccessCodeInUse(accessCode);
+      if (isInUse) {
+        return res.status(400).json({ message: 'El código de acceso ya está en uso' });
+      }
+    }
+
+    const updatedRoom = await gameRoomsService.changeRoomType(id, userId, type, accessCode);
+
+    return res.status(200).json({
+      message: `Sala cambiada a ${type === GameRoomType.PRIVATE ? 'privada' : 'pública'} exitosamente`,
+      room: updatedRoom,
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      return res.status(400).json({ message: error.message });
+    }
+    return res.status(500).json({ message: 'Error desconocido al cambiar tipo de sala' });
+  }
+};
+
+/**
+ * Regenerar código de acceso para una sala privada
+ */
+export const regenerateAccessCode = async (req: IRequestWithUser, res: Response) => {
+  try {
+    // Verificar autenticación
+    if (!req.user) {
+      return res.status(401).json({ message: 'No autenticado' });
+    }
+
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'ID de sala inválido' });
+    }
+
+    try {
+      const room = await gameRoomsService.regenerateAccessCode(id, userId);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Código de acceso regenerado exitosamente',
+        accessCode: room.accessCode,
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(403).json({
+          success: false,
+          message: error.message,
+        });
+      }
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      return res.status(500).json({ message: error.message });
+    }
+    return res.status(500).json({ message: 'Error desconocido al regenerar código de acceso' });
   }
 };

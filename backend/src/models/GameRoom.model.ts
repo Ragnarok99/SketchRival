@@ -15,8 +15,38 @@ export enum GameRoomType {
   PRIVATE = 'private', // Sala privada (acceso solo por código)
 }
 
+// Enum para modos de juego
+export enum GameMode {
+  CASUAL = 'casual', // Juego casual sin puntuación
+  STANDARD = 'standard', // Juego estándar con puntuación básica
+  COMPETITIVE = 'competitive', // Juego competitivo con ranking
+  TIMED = 'timed', // Contrarreloj
+  TEAM = 'team', // Modo por equipos
+  CUSTOM = 'custom', // Configuración personalizada
+}
+
+// Enum para sistemas de puntuación
+export enum ScoringSystem {
+  STANDARD = 'standard', // Puntuación estándar
+  PROGRESSIVE = 'progressive', // Puntos incrementales por ronda
+  TIMED = 'timed', // Puntos basados en velocidad de respuesta
+  ACCURACY = 'accuracy', // Puntos basados en precisión
+  COMBO = 'combo', // Sistema de combos por aciertos consecutivos
+}
+
+// Enum para temas visuales
+export enum VisualTheme {
+  DEFAULT = 'default',
+  DARK = 'dark',
+  LIGHT = 'light',
+  COLORFUL = 'colorful',
+  MINIMAL = 'minimal',
+  RETRO = 'retro',
+}
+
 // Interfaz para la configuración de la sala
 export interface GameRoomConfig {
+  // Configuración básica
   maxPlayers: number; // Máximo número de jugadores (2-10)
   roundTime: number; // Tiempo por ronda en segundos
   totalRounds: number; // Número total de rondas
@@ -24,6 +54,27 @@ export interface GameRoomConfig {
   allowCustomWords: boolean; // Permitir palabras personalizadas
   customWords?: string[]; // Palabras personalizadas si están permitidas
   difficulty: 'easy' | 'medium' | 'hard'; // Dificultad de las palabras
+
+  // Nuevas opciones configurables
+  gameMode: GameMode; // Modo de juego
+  adaptiveTime: boolean; // Ajustar tiempo según número de jugadores
+  timeFactor?: number; // Factor para ajuste de tiempo (0.5-2)
+  scoreMultiplier: number; // Multiplicador de puntuación base (1-5)
+  scoringSystem: ScoringSystem; // Sistema de puntuación
+  bonusRounds: boolean; // Activar rondas de bonificación
+  teamMode: boolean; // Habilitar modo por equipos
+  teamsCount?: number; // Número de equipos si teamMode es true
+  allowVoting: boolean; // Permitir votación para omitir palabras
+  votingThreshold: number; // Porcentaje necesario para omitir (50-90)
+  allowHints: boolean; // Mostrar pistas durante el juego
+  hintsCount: number; // Número de pistas por ronda
+  visualTheme: VisualTheme; // Tema visual de la sala
+  showTimer: boolean; // Mostrar temporizador
+  allowSpectators: boolean; // Permitir espectadores
+  minPlayersToStart: number; // Mínimo de jugadores para iniciar
+  autoStart: boolean; // Iniciar automáticamente con minPlayersToStart
+  hideWords: boolean; // Ocultar palabras del jugador que dibuja
+  roundBuffer: number; // Tiempo entre rondas en segundos
 }
 
 // Usar Document con generic para este tipo específico
@@ -62,6 +113,7 @@ export interface IGameRoom {
 
 // Esquema de configuración de la sala
 const GameRoomConfigSchema = new Schema<GameRoomConfig>({
+  // Configuración básica
   maxPlayers: {
     type: Number,
     required: true,
@@ -106,6 +158,122 @@ const GameRoomConfigSchema = new Schema<GameRoomConfig>({
     type: String,
     enum: ['easy', 'medium', 'hard'],
     default: 'medium',
+  },
+
+  // Nuevas opciones configurables
+  gameMode: {
+    type: String,
+    enum: Object.values(GameMode),
+    default: GameMode.STANDARD,
+  },
+  adaptiveTime: {
+    type: Boolean,
+    default: false,
+  },
+  timeFactor: {
+    type: Number,
+    min: 0.5,
+    max: 2,
+    default: 1,
+    validate: {
+      validator: function (factor: number) {
+        // @ts-ignore: Accediendo a this en un contexto de Mongoose
+        return !this.adaptiveTime || (factor >= 0.5 && factor <= 2);
+      },
+      message: 'El factor de tiempo debe estar entre 0.5 y 2 cuando adaptiveTime es true',
+    },
+  },
+  scoreMultiplier: {
+    type: Number,
+    min: 1,
+    max: 5,
+    default: 1,
+  },
+  scoringSystem: {
+    type: String,
+    enum: Object.values(ScoringSystem),
+    default: ScoringSystem.STANDARD,
+  },
+  bonusRounds: {
+    type: Boolean,
+    default: false,
+  },
+  teamMode: {
+    type: Boolean,
+    default: false,
+  },
+  teamsCount: {
+    type: Number,
+    min: 2,
+    max: 4,
+    default: 2,
+    validate: {
+      validator: function (count: number) {
+        // @ts-ignore: Accediendo a this en un contexto de Mongoose
+        return !this.teamMode || (count >= 2 && count <= 4);
+      },
+      message: 'El número de equipos debe estar entre 2 y 4 cuando teamMode es true',
+    },
+  },
+  allowVoting: {
+    type: Boolean,
+    default: true,
+  },
+  votingThreshold: {
+    type: Number,
+    min: 50,
+    max: 90,
+    default: 60,
+  },
+  allowHints: {
+    type: Boolean,
+    default: true,
+  },
+  hintsCount: {
+    type: Number,
+    min: 0,
+    max: 3,
+    default: 1,
+  },
+  visualTheme: {
+    type: String,
+    enum: Object.values(VisualTheme),
+    default: VisualTheme.DEFAULT,
+  },
+  showTimer: {
+    type: Boolean,
+    default: true,
+  },
+  allowSpectators: {
+    type: Boolean,
+    default: true,
+  },
+  minPlayersToStart: {
+    type: Number,
+    min: 2,
+    max: 10,
+    default: 2,
+    validate: {
+      validator: function (min: number) {
+        // @ts-ignore: Accediendo a this en un contexto de Mongoose
+        return min <= this.maxPlayers;
+      },
+      message: 'El mínimo de jugadores para iniciar no puede ser mayor que el máximo de jugadores',
+    },
+  },
+  autoStart: {
+    type: Boolean,
+    default: false,
+  },
+  hideWords: {
+    type: Boolean,
+    default: true,
+  },
+  roundBuffer: {
+    type: Number,
+    min: 3,
+    max: 20,
+    default: 5,
   },
 });
 
@@ -191,6 +359,8 @@ GameRoomSchema.index({ accessCode: 1 }, { sparse: true }); // Buscar salas por c
 GameRoomSchema.index({ hostId: 1 }); // Buscar salas por host
 GameRoomSchema.index({ createdAt: 1 }); // Ordenar por fecha de creación
 GameRoomSchema.index({ expiresAt: 1 }, { sparse: true }); // Para el TTL de MongoDB
+GameRoomSchema.index({ 'configuration.gameMode': 1 }); // Búsqueda por modo de juego
+GameRoomSchema.index({ 'configuration.difficulty': 1 }); // Búsqueda por dificultad
 
 // Middleware para generar código aleatorio para salas privadas
 GameRoomSchema.pre<IGameRoomDocument>('save', function (next) {

@@ -13,6 +13,7 @@ import {
   GameStatsModel,
   GameWordBankModel,
 } from '../models';
+import crypto from 'crypto';
 
 // Tipos para parámetros y respuestas
 export interface CreateRoomParams {
@@ -90,13 +91,24 @@ export async function listRooms(params: RoomListParams = {}) {
     const { page = 1, limit = 20, type = GameRoomType.PUBLIC, status = GameRoomStatus.WAITING, filter = '' } = params;
 
     const query: any = {
-      type,
       status,
     };
 
+    // Filtrar por tipo si se especifica
+    if (type) {
+      query.type = type;
+    }
+
     // Añadir filtro por nombre si se proporciona
     if (filter) {
-      query.name = { $regex: filter, $options: 'i' };
+      // Mejorado para permitir búsqueda por nombre o código (para salas privadas)
+      if (filter.length === 6 && /^[A-Z0-9]+$/.test(filter)) {
+        // Si es un patrón que parece un código de acceso, buscar por código
+        query.$or = [{ name: { $regex: filter, $options: 'i' } }, { accessCode: filter }];
+      } else {
+        // Búsqueda normal por nombre
+        query.name = { $regex: filter, $options: 'i' };
+      }
     }
 
     // Calcular skip para paginación
@@ -612,3 +624,277 @@ export const getPlayerRankings = async (
     throw new Error('Error desconocido al obtener ranking de jugadores');
   }
 };
+
+/**
+ * Verifica si un código de acceso ya está en uso
+ * @param accessCode El código a verificar
+ * @returns true si el código ya está en uso, false en caso contrario
+ */
+export async function isAccessCodeInUse(accessCode: string): Promise<boolean> {
+  try {
+    // Normalizar el código (trim + uppercase)
+    const normalizedCode = normalizeAccessCode(accessCode);
+
+    const existingRoom = await GameRoomModel.findOne({
+      accessCode: normalizedCode,
+      status: { $nin: [GameRoomStatus.CLOSED, GameRoomStatus.FINISHED] },
+    });
+    return !!existingRoom;
+  } catch (error) {
+    console.error('Error checking access code:', error);
+    throw error;
+  }
+}
+
+/**
+ * Normaliza un código de acceso (elimina espacios y convierte a mayúsculas)
+ * @param accessCode El código a normalizar
+ * @returns Código normalizado
+ */
+export function normalizeAccessCode(accessCode: string): string {
+  return accessCode.trim().toUpperCase();
+}
+
+/**
+ * Genera un código de acceso único que no esté en uso
+ * @param length Longitud del código (por defecto 6)
+ * @returns Un código de acceso único
+ */
+export async function generateUniqueAccessCode(length: number = 6): Promise<string> {
+  try {
+    // Caracteres permitidos (sin caracteres confusos como 0/O, 1/I/l)
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let isUnique = false;
+    let code = '';
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    // Intentar hasta maxAttempts veces para encontrar un código único
+    while (!isUnique && attempts < maxAttempts) {
+      // Generar código aleatorio usando crypto para mayor seguridad
+      const randomBytes = crypto.randomBytes(length);
+      code = Array.from(randomBytes)
+        .map((byte) => chars[byte % chars.length])
+        .join('');
+
+      // Verificar si ya está en uso
+      const inUse = await isAccessCodeInUse(code);
+      if (!inUse) {
+        isUnique = true;
+        break;
+      }
+
+      // Esperar un tiempo exponencial entre intentos para evitar sobrecarga
+      attempts++;
+      if (attempts < maxAttempts) {
+        const backoffMs = Math.pow(2, attempts) * 10;
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      }
+    }
+
+    if (!isUnique) {
+      throw new Error('No se pudo generar un código único después de múltiples intentos');
+    }
+
+    return code;
+  } catch (error) {
+    console.error('Error generating access code:', error);
+    throw error;
+  }
+}
+
+// Almacén en memoria para limitar intentos de acceso (en producción se usaría Redis)
+interface AccessAttempt {
+  count: number;
+  lastAttempt: number;
+  blocked: boolean;
+  blockExpires?: number;
+}
+
+const accessAttempts: Record<string, Record<string, AccessAttempt>> = {};
+
+/**
+ * Valida un código de acceso para una sala privada con límite de intentos
+ * @param roomId ID de la sala
+ * @param accessCode Código de acceso proporcionado
+ * @param ipAddress Dirección IP del solicitante (para limitar intentos)
+ * @returns La sala si el código es válido
+ */
+export async function validateRoomAccessCode(
+  roomId: string,
+  accessCode: string,
+  ipAddress: string = 'unknown',
+): Promise<IGameRoom> {
+  try {
+    // Verificar si la IP está bloqueada por demasiados intentos
+    const attemptKey = `${roomId}:${ipAddress}`;
+    const currentAttempts = accessAttempts[attemptKey] || {};
+
+    // Comprobar si está bloqueado
+    if (currentAttempts.blocked && currentAttempts.blockExpires && currentAttempts.blockExpires > Date.now()) {
+      const remainingSecs = Math.ceil((currentAttempts.blockExpires - Date.now()) / 1000);
+      throw new Error(`Demasiados intentos fallidos. Intente nuevamente en ${remainingSecs} segundos.`);
+    }
+
+    // Limpiar bloqueo si ya expiró
+    if (currentAttempts.blocked && currentAttempts.blockExpires && currentAttempts.blockExpires <= Date.now()) {
+      currentAttempts.blocked = false;
+      currentAttempts.count = 0;
+    }
+
+    // Normalizar el código
+    const normalizedCode = normalizeAccessCode(accessCode);
+
+    const room = await GameRoomModel.findById(roomId);
+
+    if (!room) {
+      throw new Error('Sala no encontrada');
+    }
+
+    // Si la sala es pública, no es necesario validar
+    if (room.type === GameRoomType.PUBLIC) {
+      return room;
+    }
+
+    // Validar código de acceso para salas privadas
+    if (!normalizedCode) {
+      incrementFailedAttempt(attemptKey);
+      throw new Error('Se requiere código de acceso para unirse a esta sala');
+    }
+
+    if (room.accessCode !== normalizedCode) {
+      incrementFailedAttempt(attemptKey);
+      throw new Error('Código de acceso incorrecto');
+    }
+
+    // Verificar si el código ha expirado (más de 24h desde creación/última actualización)
+    const codeAge = Date.now() - room.updatedAt.getTime();
+    const maxCodeAge = 24 * 60 * 60 * 1000; // 24 horas en milisegundos
+
+    if (codeAge > maxCodeAge) {
+      incrementFailedAttempt(attemptKey);
+      throw new Error('El código de acceso ha expirado. Solicite al anfitrión que genere uno nuevo.');
+    }
+
+    // Código válido, reiniciar contador de intentos
+    resetAttempts(attemptKey);
+
+    return room;
+  } catch (error) {
+    console.error(`Error validating access code for room ${roomId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Incrementa el contador de intentos fallidos y bloquea si es necesario
+ * @param key Clave identificadora (roomId:ipAddress)
+ */
+function incrementFailedAttempt(key: string): void {
+  if (!accessAttempts[key]) {
+    accessAttempts[key] = {
+      count: 0,
+      lastAttempt: Date.now(),
+      blocked: false,
+    };
+  }
+
+  const attempt = accessAttempts[key];
+  attempt.count += 1;
+  attempt.lastAttempt = Date.now();
+
+  // Bloquear después de 5 intentos fallidos
+  if (attempt.count >= 5) {
+    attempt.blocked = true;
+    // Bloquear por 15 minutos
+    attempt.blockExpires = Date.now() + 15 * 60 * 1000;
+  }
+}
+
+/**
+ * Reinicia el contador de intentos
+ * @param key Clave identificadora (roomId:ipAddress)
+ */
+function resetAttempts(key: string): void {
+  accessAttempts[key] = {
+    count: 0,
+    lastAttempt: Date.now(),
+    blocked: false,
+  };
+}
+
+/**
+ * Regenera el código de acceso para una sala privada existente
+ * @param roomId ID de la sala
+ * @param userId ID del usuario (debe ser el anfitrión)
+ * @returns La sala con el nuevo código de acceso
+ */
+export async function regenerateAccessCode(roomId: string, userId: string): Promise<IGameRoom> {
+  try {
+    // Verificar que la sala existe
+    const room = await GameRoomModel.findById(roomId);
+    if (!room) {
+      throw new Error('Sala no encontrada');
+    }
+
+    // Verificar que el usuario es el anfitrión
+    if (room.hostId.toString() !== userId) {
+      throw new Error('Solo el anfitrión puede regenerar el código de acceso');
+    }
+
+    // Verificar que la sala es privada
+    if (room.type !== GameRoomType.PRIVATE) {
+      throw new Error('Solo las salas privadas pueden tener códigos de acceso');
+    }
+
+    // Generar nuevo código único
+    const newAccessCode = await generateUniqueAccessCode();
+
+    // Actualizar la sala con el nuevo código
+    const updatedRoom = await GameRoomModel.findByIdAndUpdate(roomId, { accessCode: newAccessCode }, { new: true });
+
+    if (!updatedRoom) {
+      throw new Error('Error al actualizar el código de acceso');
+    }
+
+    // Crear mensaje de sistema para notificar a los jugadores
+    await GameMessageModel.createSystemMessage(
+      new Types.ObjectId(roomId),
+      `El anfitrión ha cambiado el código de acceso de la sala. Nuevo código: ${newAccessCode}`,
+    );
+
+    return updatedRoom;
+  } catch (error) {
+    console.error(`Error regenerating access code for room ${roomId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Buscar salas por código de acceso (mejorado con normalización)
+ * @param accessCode Código de acceso a buscar
+ */
+export async function findRoomByAccessCode(accessCode: string) {
+  try {
+    if (!accessCode || accessCode.length < 4) {
+      throw new Error('Código de acceso inválido');
+    }
+
+    // Normalizar el código
+    const normalizedCode = normalizeAccessCode(accessCode);
+
+    const room = await GameRoomModel.findOne({
+      accessCode: normalizedCode,
+      status: { $nin: [GameRoomStatus.CLOSED, GameRoomStatus.FINISHED] },
+    });
+
+    if (!room) {
+      throw new Error('No se encontró sala con ese código de acceso');
+    }
+
+    return room;
+  } catch (error) {
+    console.error(`Error finding room by access code ${accessCode}:`, error);
+    throw error;
+  }
+}
