@@ -8,6 +8,14 @@ interface GameRoomConfig {
   timeLimit?: number;
   categories?: string[];
   difficulty?: string;
+  gameMode?: string;
+  scoringSystem?: string;
+  visualTheme?: string;
+  roundsCount?: number;
+  allowSpectators?: boolean;
+  useAdaptiveTime?: boolean;
+  enableVotingSystem?: boolean;
+  wordChoiceCount?: number;
 }
 
 interface GameRoom {
@@ -32,6 +40,7 @@ interface RoomCardProps {
 export default function RoomCard({ room, onJoin, isPrivate = false }: RoomCardProps) {
   const [showCode, setShowCode] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [showAllDetails, setShowAllDetails] = useState(false);
 
   // Formatear fecha de creación
   const formatDate = (dateString: string) => {
@@ -42,6 +51,15 @@ export default function RoomCard({ room, onJoin, isPrivate = false }: RoomCardPr
       hour: '2-digit',
       minute: '2-digit'
     }).format(date);
+  };
+
+  // Formatear el tiempo (de segundos a minutos:segundos)
+  const formatTime = (seconds?: number) => {
+    if (!seconds) return 'Indefinido';
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
   // Determinar el estado de la sala
@@ -75,6 +93,31 @@ export default function RoomCard({ room, onJoin, isPrivate = false }: RoomCardPr
     }
   };
 
+  // Obtener el modo de juego
+  const getGameModeText = (mode?: string) => {
+    if (!mode) return 'Estándar';
+    switch (mode) {
+      case 'casual': return 'Casual';
+      case 'standard': return 'Estándar';
+      case 'competitive': return 'Competitivo';
+      case 'teams': return 'Equipos';
+      case 'party': return 'Fiesta';
+      default: return mode.charAt(0).toUpperCase() + mode.slice(1);
+    }
+  };
+
+  // Obtener el sistema de puntuación
+  const getScoringSystemText = (system?: string) => {
+    if (!system) return 'Estándar';
+    switch (system) {
+      case 'standard': return 'Estándar';
+      case 'progressive': return 'Progresivo';
+      case 'achievement': return 'Por Logros';
+      case 'custom': return 'Personalizado';
+      default: return system.charAt(0).toUpperCase() + system.slice(1);
+    }
+  };
+
   // Manejar la copia del código de acceso
   const handleCopyCode = () => {
     if (room.accessCode) {
@@ -88,15 +131,22 @@ export default function RoomCard({ room, onJoin, isPrivate = false }: RoomCardPr
   };
 
   return (
-    <div className="border rounded-lg shadow-sm hover:shadow-md transition-shadow bg-white overflow-hidden">
+    <div className={`border rounded-lg shadow-sm hover:shadow-md transition-shadow bg-white overflow-hidden ${room.configuration.visualTheme === 'dark' ? 'bg-gray-800 text-white' : ''}`}>
       <div className="p-4">
         <div className="flex justify-between items-start mb-2">
           <h3 className="font-semibold text-lg truncate" title={room.name}>
             {room.name}
           </h3>
-          <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusClass()}`}>
-            {getStatusText()}
-          </span>
+          <div className="flex items-center">
+            {room.type === 'private' && (
+              <span className="mr-2 bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs font-medium">
+                Privada
+              </span>
+            )}
+            <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusClass()}`}>
+              {getStatusText()}
+            </span>
+          </div>
         </div>
         
         <p className="text-sm text-gray-600 mb-4">
@@ -113,9 +163,18 @@ export default function RoomCard({ room, onJoin, isPrivate = false }: RoomCardPr
           
           {room.configuration.timeLimit && (
             <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Tiempo límite:</span>
+              <span className="text-sm text-gray-600">Tiempo por ronda:</span>
               <span className="text-sm font-medium">
-                {room.configuration.timeLimit} min
+                {formatTime(room.configuration.timeLimit)}
+              </span>
+            </div>
+          )}
+          
+          {room.configuration.roundsCount && (
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-600">Rondas:</span>
+              <span className="text-sm font-medium">
+                {room.configuration.roundsCount}
               </span>
             </div>
           )}
@@ -129,6 +188,46 @@ export default function RoomCard({ room, onJoin, isPrivate = false }: RoomCardPr
             </div>
           )}
           
+          {room.configuration.gameMode && (
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-600">Modo:</span>
+              <span className="text-sm font-medium">
+                {getGameModeText(room.configuration.gameMode)}
+              </span>
+            </div>
+          )}
+          
+          {showAllDetails && (
+            <>
+              {room.configuration.scoringSystem && (
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Puntuación:</span>
+                  <span className="text-sm font-medium">
+                    {getScoringSystemText(room.configuration.scoringSystem)}
+                  </span>
+                </div>
+              )}
+              
+              {room.configuration.categories && room.configuration.categories.length > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Categorías:</span>
+                  <span className="text-sm font-medium">
+                    {room.configuration.categories.length} categorías
+                  </span>
+                </div>
+              )}
+              
+              {room.configuration.allowSpectators !== undefined && (
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Espectadores:</span>
+                  <span className="text-sm font-medium">
+                    {room.configuration.allowSpectators ? 'Permitidos' : 'No permitidos'}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+          
           <div className="flex justify-between">
             <span className="text-sm text-gray-600">Creada:</span>
             <span className="text-sm font-medium">
@@ -136,6 +235,30 @@ export default function RoomCard({ room, onJoin, isPrivate = false }: RoomCardPr
             </span>
           </div>
         </div>
+        
+        {room.configuration.categories && room.configuration.categories.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-3 mt-2">
+            {room.configuration.categories.slice(0, 3).map((category) => (
+              <span key={category} className="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-full">
+                {category}
+              </span>
+            ))}
+            {room.configuration.categories.length > 3 && (
+              <span className="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-full">
+                +{room.configuration.categories.length - 3}
+              </span>
+            )}
+          </div>
+        )}
+        
+        {Object.keys(room.configuration).length > 4 && (
+          <button
+            className="text-sm text-blue-600 hover:text-blue-800 mb-3"
+            onClick={() => setShowAllDetails(!showAllDetails)}
+          >
+            {showAllDetails ? 'Mostrar menos' : 'Mostrar más detalles'}
+          </button>
+        )}
         
         {isPrivate && room.accessCode && (
           <div className="mb-4">

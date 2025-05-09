@@ -10,6 +10,9 @@ interface GameRoomConfig {
   timeLimit?: number;
   categories?: string[];
   difficulty?: string;
+  gameMode?: string;
+  scoringSystem?: string;
+  visualTheme?: string;
 }
 
 interface GameRoom {
@@ -28,17 +31,15 @@ interface GameRoom {
 interface GameRoomListProps {
   type: 'public' | 'private';
   onlyMine?: boolean;
+  searchQuery?: string;
+  statusFilter?: 'all' | 'waiting' | 'playing';
 }
 
-export default function GameRoomList({ type, onlyMine = false }: GameRoomListProps) {
+export default function GameRoomList({ type, onlyMine = false, searchQuery = '', statusFilter = 'all' }: GameRoomListProps) {
   const [rooms, setRooms] = useState<GameRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-
-  // Funciones de filtrado
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const fetchRooms = async () => {
@@ -96,37 +97,7 @@ export default function GameRoomList({ type, onlyMine = false }: GameRoomListPro
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between mb-4">
-        <div className="relative w-full sm:w-64">
-          <input
-            type="text"
-            placeholder="Buscar salas..."
-            className="w-full px-4 py-2 border rounded-lg"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          {searchQuery && (
-            <button
-              className="absolute right-3 top-1/2 transform -translate-y-1/2"
-              onClick={() => setSearchQuery('')}
-            >
-              ✕
-            </button>
-          )}
-        </div>
-
-        <select
-          className="px-4 py-2 border rounded-lg bg-white"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-        >
-          <option value="all">Todas</option>
-          <option value="waiting">En espera</option>
-          <option value="playing">En progreso</option>
-        </select>
-      </div>
-
+    <div className="space-y-4 mt-4">
       {loading ? (
         <div className="flex justify-center py-8">
           <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
