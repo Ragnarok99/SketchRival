@@ -10,6 +10,8 @@ import {
   IGamePlayer,
   GameMessageModel,
   MessageType,
+  GameStatsModel,
+  GameWordBankModel,
 } from '../models';
 
 // Tipos para parámetros y respuestas
@@ -391,3 +393,222 @@ export async function closeRoom(roomId: string, hostId: string) {
     throw error;
   }
 }
+
+// Método para obtener palabras aleatorias para una sala
+export const getRandomWordsForRoom = async (
+  roomId: string,
+  count: number = 3,
+  difficulty: 'easy' | 'medium' | 'hard' | 'any' = 'any',
+) => {
+  try {
+    // Obtener la sala para verificar sus categorías configuradas
+    const room = await GameRoomModel.findById(roomId);
+    if (!room) {
+      throw new Error('Sala no encontrada');
+    }
+
+    // Obtener categorías configuradas o usar por defecto
+    const categories = room.configuration.drawingCategories || ['animales', 'objetos', 'comida'];
+
+    // Mapear a nombres de categorías en el banco de palabras
+    const categoryMap: Record<string, string> = {
+      animales: 'animals',
+      comida: 'food',
+      // Añadir más mapeos según sea necesario
+    };
+
+    // Obtener categorías mapeadas o usar las originales
+    const mappedCategories = categories.map((cat) => categoryMap[cat] || cat);
+
+    // Buscar categorías en el banco de palabras
+    const wordBanks = await GameWordBankModel.find({
+      name: { $in: mappedCategories },
+      language: 'es', // Idioma por defecto
+    });
+
+    if (!wordBanks || wordBanks.length === 0) {
+      // Si no hay categorías específicas, usar todas las categorías disponibles
+      const defaultWordBanks = await GameWordBankModel.find({ isDefault: true, language: 'es' });
+      if (!defaultWordBanks || defaultWordBanks.length === 0) {
+        throw new Error('No hay palabras disponibles');
+      }
+      wordBanks.push(...defaultWordBanks);
+    }
+
+    // Coleccionar palabras de todas las categorías
+    let allWords: { word: string; category: string; difficulty: string }[] = [];
+
+    for (const bank of wordBanks) {
+      // Filtrar palabras por dificultad si es necesario
+      const bankWords = bank.words
+        .filter((w) => w.enabled && (difficulty === 'any' || w.difficulty === difficulty))
+        .map((w) => ({
+          word: w.word,
+          category: bank.name,
+          difficulty: w.difficulty,
+        }));
+
+      allWords = [...allWords, ...bankWords];
+    }
+
+    // Si no hay suficientes palabras para la dificultad solicitada, obtener de cualquier dificultad
+    if (allWords.length < count && difficulty !== 'any') {
+      return getRandomWordsForRoom(roomId, count, 'any');
+    }
+
+    // Mezclar las palabras
+    allWords.sort(() => Math.random() - 0.5);
+
+    // Devolver el número solicitado de palabras
+    return allWords.slice(0, count);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Error al obtener palabras aleatorias: ${error.message}`);
+    }
+    throw new Error('Error desconocido al obtener palabras aleatorias');
+  }
+};
+
+// Método para actualizar estadísticas de un jugador al finalizar una partida
+export const updatePlayerStatsAfterGame = async (
+  userId: string,
+  gameStats: {
+    didWin: boolean;
+    score: number;
+    drawingsCreated: number;
+    correctlyGuessedDrawings: number;
+    totalGuesses: number;
+    correctGuesses: number;
+    guessTime: number; // Tiempo promedio en segundos
+    fastestGuessTime?: number; // Tiempo más rápido en segundos
+    playTime: number; // Tiempo jugado en minutos
+    categoriesPlayed: string[];
+    playedWithUsers: string[]; // IDs de usuarios con los que jugó
+  },
+) => {
+  try {
+    // Buscar o crear estadísticas del jugador
+    let playerStats = await GameStatsModel.findOne({ userId });
+
+    if (!playerStats) {
+      playerStats = new GameStatsModel({
+        userId,
+        gamesPlayed: 0,
+        gamesWon: 0,
+        totalScore: 0,
+        drawingsCreated: 0,
+        correctlyGuessedDrawings: 0,
+        totalGuesses: 0,
+        correctGuesses: 0,
+        fastestGuessTime: Infinity,
+        averageGuessTime: 0,
+        totalPlayTime: 0,
+        longestSession: 0,
+        wordsCategoriesPlayed: [],
+        friendsPlayed: 0,
+        achievementsUnlocked: 0,
+        rankPoints: 0,
+      });
+    }
+
+    // Actualizar estadísticas
+    playerStats.gamesPlayed += 1;
+    playerStats.totalScore += gameStats.score;
+
+    if (gameStats.didWin) {
+      playerStats.gamesWon += 1;
+    }
+
+    // Actualizar estadísticas de dibujo
+    playerStats.drawingsCreated += gameStats.drawingsCreated;
+    playerStats.correctlyGuessedDrawings += gameStats.correctlyGuessedDrawings;
+
+    // Actualizar estadísticas de adivinanzas
+    playerStats.totalGuesses += gameStats.totalGuesses;
+    playerStats.correctGuesses += gameStats.correctGuesses;
+
+    // Actualizar tiempos promedio de adivinanza
+    if (gameStats.guessTime > 0) {
+      const totalGuessTime = playerStats.averageGuessTime * playerStats.totalGuesses;
+      const newTotalGuessTime = totalGuessTime + gameStats.guessTime * gameStats.totalGuesses;
+      playerStats.averageGuessTime = newTotalGuessTime / playerStats.totalGuesses;
+    }
+
+    // Actualizar tiempo más rápido de adivinanza
+    if (gameStats.fastestGuessTime && gameStats.fastestGuessTime < playerStats.fastestGuessTime) {
+      playerStats.fastestGuessTime = gameStats.fastestGuessTime;
+    }
+
+    // Actualizar tiempo de juego
+    playerStats.totalPlayTime += gameStats.playTime;
+    if (gameStats.playTime > playerStats.longestSession) {
+      playerStats.longestSession = gameStats.playTime;
+    }
+
+    // Actualizar categorías jugadas
+    for (const category of gameStats.categoriesPlayed) {
+      if (!playerStats.wordsCategoriesPlayed.includes(category)) {
+        playerStats.wordsCategoriesPlayed.push(category);
+      }
+    }
+
+    // Actualizar categoría favorita
+    const categoryCount: Record<string, number> = {};
+    for (const category of playerStats.wordsCategoriesPlayed) {
+      categoryCount[category] = (categoryCount[category] || 0) + 1;
+    }
+
+    let maxCount = 0;
+    let favoriteCategory = '';
+    for (const [category, count] of Object.entries(categoryCount)) {
+      if (count > maxCount) {
+        maxCount = count;
+        favoriteCategory = category;
+      }
+    }
+
+    if (favoriteCategory) {
+      playerStats.favoriteCategory = favoriteCategory;
+    }
+
+    // Actualizar amigos jugados (jugadores únicos)
+    const uniqueFriends = new Set([...gameStats.playedWithUsers]);
+    playerStats.friendsPlayed = uniqueFriends.size;
+
+    // Actualizar última vez jugado
+    playerStats.lastPlayed = new Date();
+
+    // Guardar cambios
+    await playerStats.save();
+
+    return playerStats;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Error al actualizar estadísticas del jugador: ${error.message}`);
+    }
+    throw new Error('Error desconocido al actualizar estadísticas del jugador');
+  }
+};
+
+// Método para obtener ranking de jugadores
+export const getPlayerRankings = async (
+  limit: number = 10,
+  sortBy: 'rankPoints' | 'totalScore' | 'gamesWon' | 'drawingAccuracy' | 'guessAccuracy' = 'rankPoints',
+) => {
+  try {
+    const sortOptions: Record<string, number> = {};
+    sortOptions[sortBy] = -1; // Ordenar descendente
+
+    const rankings = await GameStatsModel.find({})
+      .sort(sortOptions)
+      .limit(limit)
+      .select('userId totalScore gamesPlayed gamesWon drawingAccuracy guessAccuracy rankPoints');
+
+    return rankings;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Error al obtener ranking de jugadores: ${error.message}`);
+    }
+    throw new Error('Error desconocido al obtener ranking de jugadores');
+  }
+};

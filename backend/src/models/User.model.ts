@@ -1,18 +1,19 @@
-import { Schema, model, Document } from "mongoose";
-import bcrypt from "bcrypt";
+import { Schema, model, Document } from 'mongoose';
+import bcrypt from 'bcrypt';
 
 export interface IUser extends Document {
   username: string;
   email: string;
   passwordHash?: string; // Opcional si usan OAuth y no tienen contraseña local
-  authProvider: "local" | "google" | "facebook"; // Ejemplo de proveedores
+  authProvider: 'local' | 'google' | 'facebook'; // Ejemplo de proveedores
   providerId?: string; // ID del proveedor OAuth
   avatarUrl?: string;
+  roles: string[]; // Roles de usuario (admin, user, moderator, etc.)
   createdAt: Date;
   updatedAt: Date;
   passwordResetToken?: string;
   passwordResetExpires?: Date;
-  // Podríamos añadir más campos aquí: roles, stats, etc.
+  // Podríamos añadir más campos aquí: stats, etc.
 }
 
 // Interfaz para el objeto de usuario que se devuelve al cliente (sin passwordHash)
@@ -20,9 +21,10 @@ export interface IUserResponse {
   _id: string;
   username: string;
   email: string;
-  authProvider: "local" | "google" | "facebook";
+  authProvider: 'local' | 'google' | 'facebook';
   providerId?: string;
   avatarUrl?: string;
+  roles: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -51,8 +53,8 @@ const UserSchema = new Schema<IUser>(
     authProvider: {
       type: String,
       required: true,
-      enum: ["local", "google", "facebook"], // Asegura que solo estos valores son válidos
-      default: "local",
+      enum: ['local', 'google', 'facebook'], // Asegura que solo estos valores son válidos
+      default: 'local',
     },
     providerId: {
       type: String,
@@ -62,6 +64,11 @@ const UserSchema = new Schema<IUser>(
     avatarUrl: {
       type: String,
     },
+    roles: {
+      type: [String],
+      default: ['user'], // Por defecto, todos los usuarios tienen el rol "user"
+      enum: ['user', 'admin', 'moderator'], // Roles permitidos
+    },
     passwordResetToken: { type: String, select: false }, // No incluir por defecto
     passwordResetExpires: { type: Date, select: false }, // No incluir por defecto
   },
@@ -69,8 +76,8 @@ const UserSchema = new Schema<IUser>(
 );
 
 // Middleware para encriptar contraseña antes de guardar (se implementará en la siguiente subtarea)
-UserSchema.pre<IUser>("save", async function (next) {
-  if (!this.isModified("passwordHash") || !this.passwordHash) {
+UserSchema.pre<IUser>('save', async function (next) {
+  if (!this.isModified('passwordHash') || !this.passwordHash) {
     return next();
   }
   try {
@@ -82,8 +89,18 @@ UserSchema.pre<IUser>("save", async function (next) {
     if (error instanceof Error) {
       return next(error);
     }
-    return next(new Error("Error hashing password"));
+    return next(new Error('Error hashing password'));
   }
 });
 
-export const UserModel = model<IUser>("User", UserSchema);
+// Método para verificar si el usuario tiene un rol específico
+UserSchema.methods.hasRole = function (role: string): boolean {
+  return this.roles.includes(role);
+};
+
+// Método para verificar si el usuario es administrador
+UserSchema.methods.isAdmin = function (): boolean {
+  return this.roles.includes('admin');
+};
+
+export const UserModel = model<IUser>('User', UserSchema);

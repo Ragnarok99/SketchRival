@@ -6,8 +6,11 @@ import gameRoomsRoutes from './routes/gameRooms.routes'; // Importar rutas de sa
 import roomConfigRoutes from './routes/roomConfig.routes'; // Importar rutas de configuración de salas
 import privateRoomsRoutes from './routes/privateRooms.routes'; // Importar rutas de salas privadas
 import waitingRoomRoutes from './routes/waitingRoom.routes'; // Importar rutas de sala de espera
+import statsRoutes from './routes/stats.routes'; // Importar rutas de estadísticas
+import wordsRoutes from './routes/words.routes'; // Importar rutas de palabras
 import passport from './config/passport.setup'; // Importar configuración de Passport
 import { initializeEmailService } from './services/email.service';
+import { GameWordBankModel, GameRewardModel } from './models'; // Para inicialización de datos
 
 dotenv.config(); // Cargar variables de entorno
 
@@ -18,7 +21,7 @@ app.use(express.json()); // Middleware para parsear JSON bodies
 app.use(passport.initialize()); // Inicializar Passport
 
 connectToDatabase()
-  .then(() => {
+  .then(async () => {
     console.log('Connected to MongoDB');
 
     // Inicializar servicio de email
@@ -30,6 +33,19 @@ connectToDatabase()
         console.error('Error initializing email service:', err);
       });
 
+    // Inicializar datos por defecto
+    try {
+      // Crear categorías de palabras por defecto
+      await GameWordBankModel.createDefaultCategories();
+      console.log('Default word categories created/verified');
+
+      // Crear recompensas/logros por defecto
+      await GameRewardModel.createDefaultRewards();
+      console.log('Default rewards created/verified');
+    } catch (error) {
+      console.error('Error initializing default data:', error);
+    }
+
     app.get('/', (req: Request, res: Response) => {
       res.send('Hello from SketchRival Backend!');
     });
@@ -39,6 +55,8 @@ connectToDatabase()
     app.use('/api/configs', roomConfigRoutes); // Usar rutas de configuración de salas
     app.use('/api/private', privateRoomsRoutes); // Usar rutas de salas privadas
     app.use('/api/waiting-room', waitingRoomRoutes); // Usar rutas de sala de espera
+    app.use('/api/stats', statsRoutes); // Usar rutas de estadísticas
+    app.use('/api/words', wordsRoutes); // Usar rutas de palabras
 
     app.listen(port, () => {
       console.log(`Backend server listening on port ${port}`);
