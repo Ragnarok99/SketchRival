@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import useSocket, { SocketConnectionState } from '../../hooks/useSocket';
 import ChatBox from './ChatBox';
@@ -273,11 +273,8 @@ export default function WaitingRoom({
     startGame: startGameSocket 
   } = useSocket();
   
-  // Si el jugador actual es el anfitrión
-  const isHost = players.find((p: Player) => p.id === user?.userId)?.isHost || false;
-  
-  // Función para calcular estadísticas de "listos"
-  const calculateReadyStats = (playersList: Player[]) => {
+  // Mover calculateReadyStats a un useMemo
+  const calculateReadyStats = useMemo(() => (playersList: Player[]) => {
     const allPlayers = playersList.filter(p => p.role !== 'spectator');
     const readyPlayers = allPlayers.filter(p => p.isReady);
     const allReady = allPlayers.length > 0 && readyPlayers.length === allPlayers.length;
@@ -292,7 +289,13 @@ export default function WaitingRoom({
       totalPlayers: 8, // Máximo de jugadores permitidos
       canStart,
     });
-  };
+  }, []);
+  
+  // Verificar si el usuario es anfitrión
+  const isHost = useMemo(() => {
+    const currentPlayer = players.find(p => p.id === user?.userId);
+    return currentPlayer?.isHost || false;
+  }, [players, user]);
   
   // Inicializar datos de la sala y configurar event listeners
   useEffect(() => {
@@ -351,14 +354,18 @@ export default function WaitingRoom({
         avatarColor: player.avatarColor || '#3b82f6',
       }));
       
+      // Encontrar el nuevo jugador basado en el evento
+      const newPlayerId = data.playerId;
+      const newPlayerName = data.playerName || 'Un jugador';
+      
+      // Actualizar jugadores usando función para evitar closure sobre el valor actual
       setPlayers(formattedPlayers);
       calculateReadyStats(formattedPlayers);
       
-      // Mostrar notificación de jugador unido
-      const newPlayer = formattedPlayers.find((p: any) => !players.some((existingP: Player) => existingP.id === p.id));
+      // Mostrar notificación de jugador unido usando datos del evento directamente
       setNotification({
         type: 'info',
-        message: `${newPlayer?.username || 'Un jugador'} se ha unido a la sala.`
+        message: `${newPlayerName} se ha unido a la sala.`
       });
       
       // Limpiar notificación después de 3 segundos
@@ -380,24 +387,23 @@ export default function WaitingRoom({
         avatarColor: player.avatarColor || '#3b82f6',
       }));
       
-      // Encontrar quién se fue
-      const leftPlayer = players.find(p => !formattedPlayers.some((newP: any) => newP.id === p.id));
+      // Usar el playerId proporcionado directamente en el evento
+      const leftPlayerId = data.playerId;
+      const leftPlayerName = data.playerName || 'Un jugador';
       
       setPlayers(formattedPlayers);
       calculateReadyStats(formattedPlayers);
       
-      // Mostrar notificación de jugador salido
-      if (leftPlayer) {
-        setNotification({
-          type: 'warning',
-          message: `${leftPlayer.username} ha abandonado la sala.`
-        });
-        
-        // Limpiar notificación después de 3 segundos
-        setTimeout(() => {
-          setNotification(null);
-        }, 3000);
-      }
+      // Mostrar notificación de jugador salido usando datos del evento
+      setNotification({
+        type: 'warning',
+        message: `${leftPlayerName} ha abandonado la sala.`
+      });
+      
+      // Limpiar notificación después de 3 segundos
+      setTimeout(() => {
+        setNotification(null);
+      }, 3000);
     });
     
     const unsubscribePlayerReady = on('room:playerReady', (data: any) => {
@@ -486,7 +492,7 @@ export default function WaitingRoom({
       unsubscribePlayerKicked();
       unsubscribeGameStarted();
     };
-  }, [user, roomId, accessCode, connectionState, joinRoom, on, players, calculateReadyStats, onLeaveRoom, onGameStart]);
+  }, [user, roomId, accessCode, connectionState, joinRoom, on, calculateReadyStats, onLeaveRoom, onGameStart]);
   
   // Cambiar la función toggleReady para usar la función del hook
   const toggleReady = () => {
