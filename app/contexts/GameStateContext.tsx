@@ -181,118 +181,84 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
   const { user } = useAuth();
   const router = useRouter();
 
-  // Determinar si el usuario actual es el anfitrión
-  const isHost = state.players.some(
-    (player) => player.id === user?.userId && player.isHost
-  );
-
-  // Determinar si el usuario actual es el dibujante
+  const isHost = state.players.some(p => p.id === user?.userId && p.isHost);
   const isCurrentDrawer = state.currentDrawerId === user?.userId;
 
-  // Cargar estado inicial y configurar listeners
+  const showToast = useCallback((toastConfig: NonNullable<GameStateData['toastNotification']>) => {
+    const id = toastConfig.id || Date.now().toString();
+    const duration = toastConfig.duration || 3000;
+    dispatch({ type: 'SHOW_TOAST', payload: { ...toastConfig, id } });
+    
+    setTimeout(() => {
+        // Solo ocultar si este toast (identificado por id) sigue siendo el activo
+        // Esto es una simplificación. Un sistema real tendría una cola de toasts.
+        // Aquí, si el id no coincide, significa que ya hay un toast más nuevo.
+        // O podríamos usar el state actual para verificar.
+        // dispatch((currentState) => {
+        //   if (currentState.toastNotification?.id === id) {
+        //     return { type: 'HIDE_TOAST' };
+        //   }
+        //   return currentState; // No hacer nada si el toast cambió
+        // });
+        // Simplificado por ahora:
+         dispatch({ type: 'HIDE_TOAST' });
+    }, duration);
+  }, [dispatch]);
+
   useEffect(() => {
-    if (!socket || connectionState !== SocketConnectionState.CONNECTED || !user) {
-      return;
-    }
-
+    if (!socket || connectionState !== SocketConnectionState.CONNECTED || !user) return;
     setIsLoading(true);
-
-    // Solicitar estado inicial
     emit('game:getState', { roomId }, (error: any, data: any) => {
-      if (error) {
-        dispatch({
-          type: 'SET_ERROR',
-          error: { message: error, code: 'GET_STATE_ERROR' },
-        });
-      } else if (data) {
-        dispatch({ type: 'SET_STATE', payload: data });
-      }
+      if (error) dispatch({ type: 'SET_ERROR', error: { message: error, code: 'GET_STATE_ERROR' } });
+      else if (data) dispatch({ type: 'SET_STATE', payload: data });
       setIsLoading(false);
     });
-
-    // Escuchar actualizaciones de estado
-    const unsubscribe = on('game:stateUpdated', (data: Partial<GameStateData>) => {
-      dispatch({ type: 'SET_STATE', payload: data });
-    });
-
-    // Escuchar actualizaciones de tiempo
-    const unsubscribeTimer = on('game:timeUpdate', (data: { timeRemaining: number }) => {
-      dispatch({ type: 'UPDATE_TIME_REMAINING', timeRemaining: data.timeRemaining });
-    });
-
-    // Escuchar errores
-    const unsubscribeError = on('game:error', (data: { message: string; code: string }) => {
-      dispatch({ type: 'SET_ERROR', error: data });
-    });
-
-    // Escuchar notificaciones genéricas del sistema/juego desde el servidor
-    const unsubscribeNotification = on('user:notification', (data: any) => {
-        dispatch({ type: 'SHOW_TOAST', payload: {
+    const unsubState = on('game:stateUpdated', (data: Partial<GameStateData>) => dispatch({ type: 'SET_STATE', payload: data }));
+    const unsubTimer = on('game:timeUpdate', (data: { timeRemaining: number }) => dispatch({ type: 'UPDATE_TIME_REMAINING', timeRemaining: data.timeRemaining }));
+    const unsubError = on('game:error', (data: { message: string; code: string }) => dispatch({ type: 'SET_ERROR', error: data }));
+    const unsubNotification = on('user:notification', (data: any) => {
+        showToast({
             id: Date.now().toString(),
             type: data.type || 'info',
             message: data.message,
-            duration: data.duration || 3000
-        } });
+            duration: data.duration || 5000 // Duración un poco más larga para notificaciones del servidor
+        });
     });
+    return () => { unsubState(); unsubTimer(); unsubError(); unsubNotification(); };
+  }, [socket, connectionState, user, roomId, emit, on, showToast]); // showToast añadido como dependencia
 
-    // Limpiar listeners al desmontar
-    return () => {
-      unsubscribe();
-      unsubscribeTimer();
-      unsubscribeError();
-      unsubscribeNotification();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, connectionState, user, roomId, emit, on]);
-
-  // Función para enviar eventos al backend
-  const triggerEvent = (event: GameEvent, payload?: any) => {
+  const triggerEvent = useCallback((event: GameEvent, payload?: any) => {
     if (!socket || connectionState !== SocketConnectionState.CONNECTED) {
+      showToast({id: Date.now().toString(), type:'error', message: 'Socket no disponible para enviar evento.', duration: 3000});
       console.error('Socket no disponible');
       return;
     }
-
-    emit('game:event', {
-      roomId,
-      event,
-      payload,
-    });
-  };
-
-  // Funciones específicas para acciones comunes
-  const selectWord = (word: string) => {
+    emit('game:event', { roomId, event, payload });
+  }, [socket, connectionState, emit, roomId, showToast]);
+  
+  const selectWord = useCallback((word: string) => {
     triggerEvent(GameEvent.SELECT_WORD, { word });
-  };
+    showToast({id: Date.now().toString(), type: 'info', message: `Palabra "${word}" seleccionada.`, duration: 2000});
+  }, [triggerEvent, showToast]);
 
-  const showToast = useCallback((toastConfig: NonNullable<GameStateData['toastNotification']>) => {
-    dispatch({ type: 'SHOW_TOAST', payload: toastConfig });
-    if (toastConfig.duration) {
-      setTimeout(() => {
-        // Solo ocultar si este toast sigue siendo el activo
-        // Esto evita que un timeout antiguo oculte un toast nuevo
-        // Para un sistema más robusto, se necesitaría comparar IDs o tener una cola de toasts
-        dispatch({ type: 'HIDE_TOAST' }); 
-      }, toastConfig.duration);
-    }
-  }, [dispatch]);
-
-  const originalSubmitDrawing = async (imageData: string) => {
+  const submitDrawing = useCallback(async (imageData: string) => {
     if (!socket || connectionState !== SocketConnectionState.CONNECTED) {
-        const errMsg = 'No hay conexión disponible para enviar el dibujo.';
-        showToast({id: Date.now().toString(), type: 'error', message: errMsg, duration: 5000});
-        throw new Error(errMsg);
+      const errMsg = 'No hay conexión disponible para enviar el dibujo.';
+      showToast({id: Date.now().toString(), type: 'error', message: errMsg, duration: 5000});
+      throw new Error(errMsg);
     }
     try {
       return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
+        const timeoutId = setTimeout(() => {
           const errMsg = 'Tiempo de espera agotado al enviar el dibujo';
           showToast({id: Date.now().toString(), type: 'error', message: errMsg, duration: 5000});
           reject(new Error(errMsg));
         }, 15000);
         emit('game:event', { roomId, event: GameEvent.SUBMIT_DRAWING, payload: { imageData } }, (error: any, response: any) => {
-          clearTimeout(timeout);
+          clearTimeout(timeoutId);
           if (error) {
-            showToast({id: Date.now().toString(), type: 'error', message: `Error al enviar dibujo: ${error.message || error}`, duration: 5000});
+            const errorMsg = typeof error === 'string' ? error : (error.message || 'Error al enviar dibujo por socket.');
+            showToast({id: Date.now().toString(), type: 'error', message: errorMsg, duration: 5000});
             reject(error);
           } else {
             showToast({id: Date.now().toString(), type: 'success', message: '¡Dibujo enviado con éxito!', duration: 3000});
@@ -301,41 +267,74 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
         });
       });
     } catch (error: any) {
-      showToast({id: Date.now().toString(), type: 'error', message: `Error (catch principal): ${error.message || error}`, duration: 5000});
+      const errorMsg = typeof error === 'string' ? error : (error.message || 'Error desconocido al procesar envío de dibujo.');
+      showToast({id: Date.now().toString(), type: 'error', message: errorMsg, duration: 5000});
       try {
-        const response = await fetch(`/api/game-rooms/${roomId}/drawings`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ imageData })});
-        if (!response.ok) throw new Error('Error en fallback API REST');
+        const response = await fetch(`/api/rooms/${roomId}/drawings`, { method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem("accessToken")}`}, body: JSON.stringify({ imageData })});
+        if (!response.ok) {
+            const fallbackErrorData = await response.json().catch(() => ({message: "Error en fallback API REST"}));
+            throw new Error(fallbackErrorData.message);
+        }
         showToast({id: Date.now().toString(), type: 'success', message: 'Dibujo enviado (fallback API)!', duration: 3000});
         return await response.json();
       } catch (fallbackError: any) {
-        showToast({id: Date.now().toString(), type: 'error', message: `Error (fallback): ${fallbackError.message || fallbackError}`, duration: 5000});
-        throw error;
+        const fallbackErrorMsg = typeof fallbackError === 'string' ? fallbackError : (fallbackError.message || 'Error desconocido en fallback API.');
+        showToast({id: Date.now().toString(), type: 'error', message: fallbackErrorMsg, duration: 5000});
+        throw error; 
       }
     }
-  };
+  }, [socket, connectionState, emit, roomId, showToast]);
 
-  const originalSubmitGuess = (guess: string) => {
+  const submitGuess = useCallback((guess: string) => {
     triggerEvent(GameEvent.SUBMIT_GUESS, { guess });
-    // Podríamos añadir un callback al triggerEvent o un evento específico para confirmar la adivinanza
-    // y luego mostrar un toast. Por ahora, el feedback es local en GuessingScreen.
-    // Opcional: showToast({id: Date.now().toString(), type: 'info', message: `Adivinanza "${guess}" enviada.`, duration: 2000});
-  };
+    // El feedback de adivinanza enviada es local en GuessingScreen.
+    // El resultado (correcto/incorrecto) vendrá por `user:notification` o `game:stateUpdated`.
+  }, [triggerEvent]);
 
-  // Valor del contexto
   const value = {
     state,
     dispatch,
     isLoading,
     triggerEvent,
     selectWord,
-    submitDrawing: originalSubmitDrawing,
-    submitGuess: originalSubmitGuess,
+    submitDrawing,
+    submitGuess,
     showToast,
     isHost,
     isCurrentDrawer,
   };
 
-  return <GameStateContext.Provider value={value}>{children}</GameStateContext.Provider>;
+  // Componente Toast simple
+  const Toast = () => {
+    if (!state.toastNotification) return null;
+    const { type, message } = state.toastNotification;
+    let bgColor = 'bg-blue-500';
+    if (type === 'success') bgColor = 'bg-green-500';
+    if (type === 'error') bgColor = 'bg-red-500';
+    if (type === 'warning') bgColor = 'bg-yellow-500';
+
+    // Aplicar estilos para transición de opacidad y transform en lugar de depender de una clase CSS externa
+    return (
+      <div 
+        className={`fixed bottom-5 right-5 p-4 rounded-lg shadow-lg text-white text-sm ${bgColor}`}
+        style={{
+          zIndex: 1000,
+          transition: 'opacity 0.5s ease-in-out, transform 0.5s ease-in-out',
+          opacity: state.toastNotification ? 1 : 0,
+          transform: state.toastNotification ? 'translateY(0)' : 'translateY(20px)',
+        }}
+      >
+        {message}
+      </div>
+    );
+  };
+
+  return (
+    <GameStateContext.Provider value={value}>
+      {children}
+      <Toast />
+    </GameStateContext.Provider>
+  );
 }
 
 // Hook para usar el contexto
