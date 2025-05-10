@@ -5,6 +5,10 @@ import config from '../config';
 import logger from '../utils/logger';
 import gameStateMachineService from './gameState.service';
 import { GameEvent, GameState as GamePhase } from '../models/GameState.model';
+import * as gameRoomsService from './gameRooms.service';
+import * as gamePlayerService from './gamePlayer.service';
+import { GamePlayerModel } from '../models';
+import { Types } from 'mongoose';
 // import gameService from './gameService'; // Comentamos esta línea ya que el módulo no existe
 
 // Enumeración para estados del juego
@@ -310,32 +314,48 @@ class SocketService {
           return callback('Invalid request');
         }
 
-        // TODO: Validar en base de datos si la sala existe y el accessCode es correcto
-        // Por ahora, simulamos que es siempre válido
+        // Validar en base de datos si la sala existe y el accessCode es correcto
+        try {
+          await gameRoomsService.validateRoomAccessCode(roomId, accessCode);
+        } catch (error) {
+          return callback('Invalid access code or room not found');
+        }
 
-        // Añadir cliente a la sala
+        // Añadir cliente a la sala en la base de datos
+        try {
+          await gameRoomsService.addUserToRoom({
+            roomId,
+            userId: client.userId,
+            username: client.username,
+          });
+        } catch (error) {
+          logger.error(`Error adding user ${client.userId} to room ${roomId} in database:`, error);
+          return callback('Error joining room in database');
+        }
+
+        // Añadir cliente a la sala en memoria
         this.addClientToRoom(socket, client, roomId);
+
+        // Obtener datos actualizados de la sala y jugadores desde la base de datos
+        const playersData = await GamePlayerModel.find({
+          roomId: new Types.ObjectId(roomId),
+          status: { $ne: 'left' }, // Excluir jugadores que han abandonado
+        }).lean();
+
+        const formattedPlayers = playersData.map((player) => ({
+          userId: player.userId.toString(),
+          username: player.username,
+          isReady: player.isReady || false,
+          role: player.role || 'player',
+        }));
 
         // Notificar a otros en la sala
         socket.to(roomId).emit(SocketEvent.ROOM_PLAYER_JOINED, {
           playerId: client.userId,
           playerName: client.username,
-          // TODO: Obtener datos actualizados de la sala
           room: {
             id: roomId,
-            players: Array.from(this.getClientsInRoom(roomId))
-              .map((socketId) => {
-                const c = this.clients.get(socketId);
-                return c
-                  ? {
-                      userId: c.userId,
-                      username: c.username,
-                      isReady: false, // TODO: Obtener estado real
-                      role: c.userId === data.hostId ? 'host' : 'player',
-                    }
-                  : null;
-              })
-              .filter(Boolean),
+            players: formattedPlayers,
           },
         });
 
@@ -346,20 +366,7 @@ class SocketService {
         const responseData = {
           room: {
             id: roomId,
-            // TODO: Obtener datos reales de la sala
-            players: Array.from(this.getClientsInRoom(roomId))
-              .map((socketId) => {
-                const c = this.clients.get(socketId);
-                return c
-                  ? {
-                      userId: c.userId,
-                      username: c.username,
-                      isReady: false, // TODO: Obtener estado real
-                      role: c.userId === data.hostId ? 'host' : 'player',
-                    }
-                  : null;
-              })
-              .filter(Boolean),
+            players: formattedPlayers,
           },
           // Incluir estado del juego si existe
           gameState: currentState || null,
@@ -374,12 +381,47 @@ class SocketService {
     });
 
     // Abandonar una sala
-    socket.on(SocketEvent.ROOM_LEAVE, (data: any, callback?: Function) => {
+    socket.on(SocketEvent.ROOM_LEAVE, async (data: any, callback?: Function) => {
       try {
         const { roomId } = data;
-        if (!roomId) return callback?.('Invalid request');
+        const client = this.clients.get(socket.id);
 
+        if (!roomId) return callback?.('Invalid request');
+        if (!client) return callback?.('Client not found');
+
+        // Actualizar la base de datos
+        try {
+          await gameRoomsService.leaveRoom(roomId, client.userId, client.username);
+        } catch (error) {
+          logger.error(`Error removing user ${client.userId} from room ${roomId} in database:`, error);
+          // Continuamos con la desconexión en memoria aunque falle la BD
+        }
+
+        // Actualizar la memoria
         this.handleClientLeaveRoom(socket, roomId);
+
+        // Obtener datos actualizados de la sala desde la base de datos
+        const playersData = await GamePlayerModel.find({
+          roomId: new Types.ObjectId(roomId),
+          status: { $ne: 'left' }, // Excluir jugadores que han abandonado
+        }).lean();
+
+        const formattedPlayers = playersData.map((player) => ({
+          userId: player.userId.toString(),
+          username: player.username,
+          isReady: player.isReady || false,
+          role: player.role || 'player',
+        }));
+
+        // Notificar a los demás con datos actualizados desde la BD
+        socket.to(roomId).emit(SocketEvent.ROOM_PLAYER_LEFT, {
+          playerId: client.userId,
+          room: {
+            id: roomId,
+            players: formattedPlayers,
+          },
+        });
+
         callback?.();
       } catch (error) {
         logger.error('Error leaving room:', error);
