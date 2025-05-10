@@ -272,11 +272,22 @@ class GameStateMachineService {
             try {
                 // Convertir Map a objeto para enviar por socket
                 const scoresObject = {};
-                if (gameState.scores) {
+                if (gameState.scores instanceof Map) {
                     for (const [key, value] of gameState.scores.entries()) {
                         scoresObject[key] = value;
                     }
                 }
+                else if (gameState.scores && typeof gameState.scores === 'object') {
+                    // Si ya es un objeto, copiarlo directamente
+                    Object.assign(scoresObject, gameState.scores);
+                }
+                // Preparar datos de evaluación de IA para enviar (si existe)
+                const iaEvaluationData = gameState.currentRoundIaEvaluation
+                    ? {
+                        isCorrect: gameState.currentRoundIaEvaluation.isCorrect,
+                        justification: gameState.currentRoundIaEvaluation.justification,
+                    }
+                    : undefined;
                 // Enviar notificación de cambio de estado mediante socket.io
                 (_a = socket_service_1.default
                     .getIO()) === null || _a === void 0 ? void 0 : _a.to(roomId).emit('game:stateChanged', {
@@ -287,6 +298,7 @@ class GameStateMachineService {
                         timeRemaining: gameState.timeRemaining,
                         currentDrawerId: gameState.currentDrawerId,
                         scores: scoresObject,
+                        currentRoundIaEvaluation: iaEvaluationData,
                         // No enviar la palabra actual a todos (solo al dibujante)
                     },
                 });
@@ -666,8 +678,29 @@ class GameStateMachineService {
     handleGuessingTimeout(context) {
         return __awaiter(this, void 0, void 0, function* () {
             const { roomId, gameState } = context;
+            // Importar el servicio de OpenAI
+            const openAIService = require('./openAIService').default;
             // Enviar mensaje de tiempo agotado
             socket_service_1.default.sendSystemMessage(roomId, `¡Tiempo de adivinanza agotado! La palabra era: ${gameState.currentWord}`);
+            // Evaluar el dibujo con OpenAI si hay un dibujo disponible
+            if (gameState.drawings && gameState.drawings.length > 0 && gameState.currentWord) {
+                try {
+                    const currentDrawing = gameState.drawings[gameState.drawings.length - 1];
+                    // Solo evaluar si corresponde a la ronda actual y tiene datos de imagen
+                    if (currentDrawing.round === gameState.currentRound && currentDrawing.imageData) {
+                        console.log(`Evaluando dibujo con OpenAI para la palabra "${gameState.currentWord}"...`);
+                        // Llamar a la API de OpenAI para evaluar el dibujo
+                        const evaluationResult = yield openAIService.evaluateDrawingWithOpenAI(currentDrawing.imageData, gameState.currentWord);
+                        // Guardar el resultado de la evaluación en el estado del juego
+                        gameState.currentRoundIaEvaluation = evaluationResult;
+                        console.log(`Evaluación de OpenAI recibida: ${evaluationResult.isCorrect ? 'Correcto' : 'Incorrecto'}`);
+                    }
+                }
+                catch (error) {
+                    console.error('Error al evaluar el dibujo con OpenAI:', error);
+                    // No bloquear el flujo del juego si hay un error en la evaluación
+                }
+            }
             // Configurar tiempo para mostrar resultados de ronda
             gameState.timeRemaining = 10; // 10 segundos para ver resultados
         });

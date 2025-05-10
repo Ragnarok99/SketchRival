@@ -5,11 +5,11 @@ export enum GameState {
   // Estados principales del juego
   WAITING = 'waiting', // Sala de espera antes de iniciar
   STARTING = 'starting', // Iniciando juego (countdown)
-  WORD_SELECTION = 'wordSelection', // Selección de palabra para dibujar
+  WORD_SELECTION = 'word_selection', // Selección de palabra para dibujar
   DRAWING = 'drawing', // Dibujando
   GUESSING = 'guessing', // Adivinando lo que se dibuja
-  ROUND_END = 'roundEnd', // Fin de ronda, muestra resultados
-  GAME_END = 'gameEnd', // Fin del juego, resultados finales
+  ROUND_END = 'round_end', // Fin de ronda, muestra resultados
+  GAME_END = 'game_end', // Fin del juego, resultados finales
 
   // Estados auxiliares
   PAUSED = 'paused', // Juego pausado
@@ -18,19 +18,19 @@ export enum GameState {
 
 // Enumeración para los eventos que provocan transiciones
 export enum GameEvent {
-  START_GAME = 'startGame', // Iniciar el juego
-  SELECT_WORD = 'selectWord', // Seleccionar palabra a dibujar
+  START_GAME = 'start_game', // Iniciar el juego
+  SELECT_WORD = 'select_word', // Seleccionar palabra a dibujar
   START_DRAWING = 'startDrawing', // Comenzar a dibujar
-  SUBMIT_DRAWING = 'submitDrawing', // Enviar dibujo para evaluación
-  SUBMIT_GUESS = 'submitGuess', // Enviar una respuesta/adivinanza
-  TIMER_END = 'timerEnd', // El temporizador ha llegado a cero
+  SUBMIT_DRAWING = 'submit_drawing', // Enviar dibujo para evaluación
+  SUBMIT_GUESS = 'submit_guess', // Enviar una respuesta/adivinanza
+  TIMER_END = 'timer_end', // El temporizador ha llegado a cero
   END_ROUND = 'endRound', // Finalizar ronda actual
-  NEXT_ROUND = 'nextRound', // Pasar a siguiente ronda
-  END_GAME = 'endGame', // Finalizar el juego
-  PAUSE_GAME = 'pauseGame', // Pausar el juego
-  RESUME_GAME = 'resumeGame', // Reanudar juego pausado
-  ERROR_OCCURRED = 'errorOccurred', // Ocurrió un error
-  RESET_GAME = 'resetGame', // Reiniciar el juego
+  NEXT_ROUND = 'next_round', // Pasar a siguiente ronda
+  END_GAME = 'end_game', // Finalizar el juego
+  PAUSE_GAME = 'pause_game', // Pausar el juego
+  RESUME_GAME = 'resume_game', // Reanudar juego pausado
+  ERROR_OCCURRED = 'error_occurred', // Ocurrió un error
+  RESET_GAME = 'reset_game', // Reiniciar el juego
 }
 
 // Interfaz para los datos de estado del juego
@@ -44,13 +44,14 @@ export interface IGameStateData {
   currentDrawerId?: Types.ObjectId; // Usuario que está dibujando
   currentWord?: string; // Palabra actual
   wordOptions?: string[]; // Opciones de palabras disponibles
-  scores?: Map<string, number>; // Puntuaciones (userId -> puntos)
+  scores?: Map<string, number> | Record<string, number>; // Puntuaciones (userId -> puntos)
   drawings?: {
     // Dibujos realizados
     userId: Types.ObjectId; // ID del usuario
     imageData: string; // Datos del dibujo (URL o base64)
     word: string; // Palabra dibujada
     round: number; // Ronda en que se dibujó
+    createdAt?: Date;
   }[];
   guesses?: {
     // Adivinanzas realizadas
@@ -59,13 +60,22 @@ export interface IGameStateData {
     guess: string; // Texto de la adivinanza
     correct: boolean; // Si fue correcta
     score: number; // Puntos ganados
+    createdAt?: Date;
   }[];
   startedAt?: Date; // Cuándo se inició el juego
+  endedAt?: Date; // Cuándo se terminó el juego
   lastUpdated: Date; // Última actualización del estado
   error?: {
     // Información de error
     message: string; // Mensaje de error
     code: string; // Código de error
+    timestamp?: Date;
+  };
+  winnerId?: Types.ObjectId;
+  currentRoundIaEvaluation?: {
+    isCorrect: boolean;
+    justification: string;
+    error?: string;
   };
 }
 
@@ -143,6 +153,10 @@ const GameStateSchema = new Schema<IGameStateDocument>(
           type: Number,
           required: true,
         },
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
       },
     ],
     guesses: [
@@ -170,9 +184,16 @@ const GameStateSchema = new Schema<IGameStateDocument>(
           required: true,
           default: 0,
         },
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
       },
     ],
     startedAt: {
+      type: Date,
+    },
+    endedAt: {
       type: Date,
     },
     lastUpdated: {
@@ -183,6 +204,25 @@ const GameStateSchema = new Schema<IGameStateDocument>(
     error: {
       message: String,
       code: String,
+      timestamp: {
+        type: Date,
+        default: Date.now,
+      },
+    },
+    winnerId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    currentRoundIaEvaluation: {
+      isCorrect: {
+        type: Boolean,
+      },
+      justification: {
+        type: String,
+      },
+      error: {
+        type: String,
+      },
     },
   },
   {

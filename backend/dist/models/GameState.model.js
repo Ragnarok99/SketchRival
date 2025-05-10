@@ -8,11 +8,11 @@ var GameState;
     // Estados principales del juego
     GameState["WAITING"] = "waiting";
     GameState["STARTING"] = "starting";
-    GameState["WORD_SELECTION"] = "wordSelection";
+    GameState["WORD_SELECTION"] = "word_selection";
     GameState["DRAWING"] = "drawing";
     GameState["GUESSING"] = "guessing";
-    GameState["ROUND_END"] = "roundEnd";
-    GameState["GAME_END"] = "gameEnd";
+    GameState["ROUND_END"] = "round_end";
+    GameState["GAME_END"] = "game_end";
     // Estados auxiliares
     GameState["PAUSED"] = "paused";
     GameState["ERROR"] = "error";
@@ -20,19 +20,19 @@ var GameState;
 // Enumeración para los eventos que provocan transiciones
 var GameEvent;
 (function (GameEvent) {
-    GameEvent["START_GAME"] = "startGame";
-    GameEvent["SELECT_WORD"] = "selectWord";
+    GameEvent["START_GAME"] = "start_game";
+    GameEvent["SELECT_WORD"] = "select_word";
     GameEvent["START_DRAWING"] = "startDrawing";
-    GameEvent["SUBMIT_DRAWING"] = "submitDrawing";
-    GameEvent["SUBMIT_GUESS"] = "submitGuess";
-    GameEvent["TIMER_END"] = "timerEnd";
+    GameEvent["SUBMIT_DRAWING"] = "submit_drawing";
+    GameEvent["SUBMIT_GUESS"] = "submit_guess";
+    GameEvent["TIMER_END"] = "timer_end";
     GameEvent["END_ROUND"] = "endRound";
-    GameEvent["NEXT_ROUND"] = "nextRound";
-    GameEvent["END_GAME"] = "endGame";
-    GameEvent["PAUSE_GAME"] = "pauseGame";
-    GameEvent["RESUME_GAME"] = "resumeGame";
-    GameEvent["ERROR_OCCURRED"] = "errorOccurred";
-    GameEvent["RESET_GAME"] = "resetGame";
+    GameEvent["NEXT_ROUND"] = "next_round";
+    GameEvent["END_GAME"] = "end_game";
+    GameEvent["PAUSE_GAME"] = "pause_game";
+    GameEvent["RESUME_GAME"] = "resume_game";
+    GameEvent["ERROR_OCCURRED"] = "error_occurred";
+    GameEvent["RESET_GAME"] = "reset_game";
 })(GameEvent || (exports.GameEvent = GameEvent = {}));
 // Esquema para el estado del juego en MongoDB
 const GameStateSchema = new mongoose_1.Schema({
@@ -104,6 +104,10 @@ const GameStateSchema = new mongoose_1.Schema({
                 type: Number,
                 required: true,
             },
+            createdAt: {
+                type: Date,
+                default: Date.now,
+            },
         },
     ],
     guesses: [
@@ -131,9 +135,16 @@ const GameStateSchema = new mongoose_1.Schema({
                 required: true,
                 default: 0,
             },
+            createdAt: {
+                type: Date,
+                default: Date.now,
+            },
         },
     ],
     startedAt: {
+        type: Date,
+    },
+    endedAt: {
         type: Date,
     },
     lastUpdated: {
@@ -144,6 +155,25 @@ const GameStateSchema = new mongoose_1.Schema({
     error: {
         message: String,
         code: String,
+        timestamp: {
+            type: Date,
+            default: Date.now,
+        },
+    },
+    winnerId: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+    },
+    currentRoundIaEvaluation: {
+        isCorrect: {
+            type: Boolean,
+        },
+        justification: {
+            type: String,
+        },
+        error: {
+            type: String,
+        },
     },
 }, {
     timestamps: true,
