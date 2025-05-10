@@ -302,8 +302,11 @@ export default function WaitingRoom({
         setError(error);
         setLoading(false);
       } else if (data) {
+        // Asegurarse de que players sea un array
+        const playersData = Array.isArray(data.room.players) ? data.room.players : [];
+        
         // Transformar el formato de jugadores para nuestro componente
-        const formattedPlayers = data.room.players.map((player: any) => ({
+        const formattedPlayers = playersData.map((player: any) => ({
           id: player.userId,
           username: player.username,
           isReady: player.isReady,
@@ -331,7 +334,10 @@ export default function WaitingRoom({
     
     // Cuando un jugador se une
     socketInstance.on('room:playerJoined', (data: any) => {
-      const formattedPlayers = data.room.players.map((player: any) => ({
+      // Asegurarse de que players sea un array
+      const playersData = Array.isArray(data.room.players) ? data.room.players : [];
+      
+      const formattedPlayers = playersData.map((player: any) => ({
         id: player.userId,
         username: player.username,
         isReady: player.isReady,
@@ -357,7 +363,10 @@ export default function WaitingRoom({
     
     // Cuando un jugador abandona la sala
     socketInstance.on('room:playerLeft', (data: any) => {
-      const formattedPlayers = data.room.players.map((player: any) => ({
+      // Asegurarse de que players sea un array
+      const playersData = Array.isArray(data.room.players) ? data.room.players : [];
+      
+      const formattedPlayers = playersData.map((player: any) => ({
         id: player.userId,
         username: player.username,
         isReady: player.isReady,
@@ -388,7 +397,10 @@ export default function WaitingRoom({
     
     // Cuando un jugador cambia su estado de listo
     socketInstance.on('room:playerReady', (data: any) => {
-      const formattedPlayers = data.room.players.map((player: any) => ({
+      // Asegurarse de que players sea un array
+      const playersData = Array.isArray(data.room.players) ? data.room.players : [];
+      
+      const formattedPlayers = playersData.map((player: any) => ({
         id: player.userId,
         username: player.username,
         isReady: player.isReady,
@@ -423,7 +435,10 @@ export default function WaitingRoom({
     
     // Cuando la sala se actualiza
     socketInstance.on('room:updated', (data: any) => {
-      const formattedPlayers = data.room.players.map((player: any) => ({
+      // Asegurarse de que players sea un array
+      const playersData = Array.isArray(data.room.players) ? data.room.players : [];
+      
+      const formattedPlayers = playersData.map((player: any) => ({
         id: player.userId,
         username: player.username,
         isReady: player.isReady,

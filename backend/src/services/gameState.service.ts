@@ -451,10 +451,46 @@ class GameStateMachineService {
 
     // Generar opciones de palabras usando el wordBankService
     try {
-      // Intentar obtener palabras del servicio
-      const wordService = require('./wordBank.service').default;
+      // Obtener categorías configuradas en la sala si existen
+      const categories = room.configuration?.drawingCategories || [];
       const difficulty = room.configuration?.difficulty || 'medium';
-      gameState.wordOptions = await wordService.getRandomWords(3, difficulty);
+      const wordCount = 3; // Número fijo de opciones de palabras
+
+      // Intentar obtener palabras del servicio de banco de palabras
+      const wordService = require('./wordBank.service').default;
+
+      if (categories.length > 0) {
+        // Si hay categorías específicas configuradas, elegir una aleatoriamente
+        const randomCategoryIndex = Math.floor(Math.random() * categories.length);
+        const selectedCategory = categories[randomCategoryIndex];
+
+        // Intentar obtener palabras de la categoría específica
+        try {
+          const allCategories = await wordService.getAllCategories();
+          const category = allCategories.find((c: any) => c.name.toLowerCase() === selectedCategory.toLowerCase());
+
+          if (category) {
+            gameState.wordOptions = await wordService.getRandomWordsFromCategory(
+              category._id.toString(),
+              wordCount,
+              difficulty as 'easy' | 'medium' | 'hard',
+            );
+          } else {
+            // Si no se encuentra la categoría, usar palabras generales
+            gameState.wordOptions = await wordService.getRandomWords(
+              wordCount,
+              difficulty as 'easy' | 'medium' | 'hard',
+            );
+          }
+        } catch (error) {
+          console.error('Error al obtener palabras de la categoría seleccionada:', error);
+          // Fallback: Usar palabras generales
+          gameState.wordOptions = await wordService.getRandomWords(wordCount, difficulty as 'easy' | 'medium' | 'hard');
+        }
+      } else {
+        // Si no hay categorías específicas, obtener palabras aleatorias generales
+        gameState.wordOptions = await wordService.getRandomWords(wordCount, difficulty as 'easy' | 'medium' | 'hard');
+      }
     } catch (error) {
       // Si falla, usar palabras predeterminadas
       console.error('Error al obtener palabras:', error);
@@ -474,17 +510,21 @@ class GameStateMachineService {
       gameState.wordOptions = wordOptions;
     }
 
-    // Establecer tiempo para selección de palabra
-    const selectionTime = 15; // Por defecto 15 segundos
+    // Establecer tiempo para selección de palabra (15 segundos por defecto)
+    // Usamos un tiempo fijo para la selección de palabras ya que no hay un campo específico en la configuración
+    const selectionTime = 15; // Tiempo fijo de 15 segundos para selección de palabra
     gameState.timeRemaining = selectionTime;
 
     // Guardar tiempo máximo como propiedad temporal
     (gameState as any)._currentPhaseMaxTime = selectionTime;
 
+    // Iniciar el temporizador para la fase de selección de palabra
+    this.startPhaseTimer(roomId, selectionTime);
+
     // Enviar opciones de palabra solo al dibujante
     socketService.getIO()?.to(currentDrawer.userId.toString()).emit('game:wordSelection', {
       options: gameState.wordOptions,
-      timeRemaining: gameState.timeRemaining,
+      timeRemaining: selectionTime,
       maxTime: selectionTime,
     });
 
@@ -493,9 +533,6 @@ class GameStateMachineService {
       roomId,
       `¡Ronda ${gameState.currentRound} de ${gameState.totalRounds}! ${currentDrawer.username} va a dibujar. Esperando selección de palabra...`,
     );
-
-    // Iniciar el temporizador para la fase de selección de palabra
-    this.startPhaseTimer(roomId, gameState.timeRemaining);
   }
 
   // Manejar palabra seleccionada
@@ -516,9 +553,35 @@ class GameStateMachineService {
     // Establecer la palabra seleccionada
     gameState.currentWord = selectedWord;
 
+    // Limpiar opciones de palabras para no enviarlas a todos los jugadores
+    // (Las opciones solo son relevantes durante la fase de selección)
+    delete gameState.wordOptions;
+
     // Configurar tiempo de dibujo (90 segundos por defecto)
     const room = await GameRoomModel.findById(roomId);
-    gameState.timeRemaining = room?.configuration.roundTime || 90;
+    const drawingTime = room?.configuration?.roundTime || 90;
+    gameState.timeRemaining = drawingTime;
+
+    // Guardar información del tiempo máximo de la fase
+    const maxTime = drawingTime;
+    (gameState as any)._currentPhaseMaxTime = maxTime;
+
+    // Iniciar temporizador para la fase de dibujo
+    this.startPhaseTimer(roomId, drawingTime);
+
+    // Enviar la palabra completa solo al dibujante (información privada)
+    socketService.getIO()?.to(userId).emit('game:wordToDrawConfirmed', {
+      word: selectedWord,
+      timeRemaining: drawingTime,
+      maxTime,
+    });
+
+    // Generar versión ofuscada de la palabra para los demás jugadores (guiones bajos)
+    const wordLength = selectedWord.length;
+    const hiddenWord = '_ '.repeat(wordLength).trim();
+
+    // Enviar notificación a todos sobre la longitud/formato de la palabra
+    socketService.sendSystemMessage(roomId, `¡Palabra seleccionada! Tiene ${wordLength} letras: ${hiddenWord}`);
 
     // Notificar a todos que se inicia fase de dibujo
     socketService.sendSystemMessage(
@@ -542,18 +605,47 @@ class GameStateMachineService {
       gameState.currentWord = 'objeto';
     }
 
+    // Limpiar opciones de palabras para no enviarlas a todos los jugadores
+    delete gameState.wordOptions;
+
     // Configurar tiempo de dibujo (90 segundos por defecto)
     const room = await GameRoomModel.findById(roomId);
-    gameState.timeRemaining = room?.configuration.roundTime || 90;
+    const drawingTime = room?.configuration?.roundTime || 90;
+    gameState.timeRemaining = drawingTime;
+
+    // Guardar información del tiempo máximo de la fase
+    const maxTime = drawingTime;
+    (gameState as any)._currentPhaseMaxTime = maxTime;
+
+    // Iniciar temporizador para la fase de dibujo
+    this.startPhaseTimer(roomId, drawingTime);
 
     // Notificar que se eligió palabra automáticamente
     if (gameState.currentDrawerId) {
+      // Enviar la palabra completa solo al dibujante (información privada)
+      socketService.getIO()?.to(gameState.currentDrawerId.toString()).emit('game:wordToDrawConfirmed', {
+        word: gameState.currentWord,
+        timeRemaining: drawingTime,
+        maxTime,
+        autoSelected: true,
+      });
+
       socketService.sendUserNotification(
         gameState.currentDrawerId.toString(),
         'warning',
         `Se eligió automáticamente la palabra: ${gameState.currentWord}`,
       );
     }
+
+    // Generar versión ofuscada de la palabra para mostrar a todos
+    const wordLength = gameState.currentWord.length;
+    const hiddenWord = '_ '.repeat(wordLength).trim();
+
+    // Enviar notificación a todos sobre la longitud/formato de la palabra
+    socketService.sendSystemMessage(
+      roomId,
+      `¡Palabra seleccionada automáticamente! Tiene ${wordLength} letras: ${hiddenWord}`,
+    );
 
     socketService.sendSystemMessage(
       roomId,

@@ -25,7 +25,7 @@ interface GameRoom {
   hostName: string;
   type: 'public' | 'private';
   status: 'waiting' | 'playing' | 'finished' | 'closed';
-  players: any;
+  players: any[] | number;
   configuration: GameRoomConfig;
   accessCode?: string;
   createdAt: string;

@@ -22,7 +22,7 @@ interface GameRoom {
   hostName: string;
   type: 'public' | 'private';
   status: 'waiting' | 'playing' | 'finished' | 'closed';
-  players: any; // Para manejar tanto arrays como números
+  players: any[] | number; // Para manejar tanto arrays como números
   configuration: GameRoomConfig;
   accessCode?: string;
   createdAt: string;
@@ -37,7 +37,7 @@ interface APIGameRoom {
   hostName?: string;
   type: 'public' | 'private';
   status: 'waiting' | 'playing' | 'finished' | 'closed';
-  players: any;
+  players: any[] | number; // Puede ser array de jugadores o número
   configuration: GameRoomConfig;
   accessCode?: string;
   createdAt: string;
@@ -98,8 +98,11 @@ export default function GameRoomList({ type, onlyMine = false, searchQuery = '',
           hostName: room.hostName || 'Anfitrión', // Valor por defecto
           type: room.type,
           status: room.status,
-          players: room.players,
-          configuration: room.configuration,
+          players: room.players, // Ya correctamente tipado como any[] | number
+          configuration: {
+            ...room.configuration,
+            maxPlayers: room.configuration.maxPlayers || 10 // Asegurar que siempre haya un valor por defecto
+          },
           accessCode: room.accessCode,
           createdAt: room.createdAt
         }));

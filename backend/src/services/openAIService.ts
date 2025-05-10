@@ -54,6 +54,51 @@ class OpenAIService {
   }
 
   /**
+   * Valida y formatea una imagen en formato Data URL para enviarla a OpenAI.
+   * La implementación actual simplemente valida el formato, pero podría extenderse
+   * para optimizar la imagen (redimensionamiento, compresión) si fuera necesario.
+   *
+   * @param imageDataUrl La imagen en formato Data URL (típicamente generada por canvas.toDataURL)
+   * @returns La imagen validada/optimizada lista para enviar a OpenAI, o null si es inválida
+   */
+  formatImageForOpenAI(imageDataUrl: string): string | null {
+    // Verificar que sea una Data URL válida
+    if (!imageDataUrl || typeof imageDataUrl !== 'string') {
+      console.error('Formato de imagen inválido: la URL de datos no es una cadena válida');
+      return null;
+    }
+
+    // Verificar que tenga el formato correcto (debe empezar con "data:")
+    if (!imageDataUrl.startsWith('data:')) {
+      console.error('Formato de imagen inválido: la URL no comienza con "data:"');
+      return null;
+    }
+
+    // Verificar que sea una imagen (data:image/)
+    if (!imageDataUrl.startsWith('data:image/')) {
+      console.error('Formato de imagen inválido: no es una imagen');
+      return null;
+    }
+
+    // Por ahora, devolvemos la imagen tal como está.
+    // En futuras optimizaciones, podríamos:
+    // 1. Redimensionar la imagen si es demasiado grande (lado más corto ~768px, lado más largo ~2048px)
+    // 2. Comprimir la imagen si es demasiado pesada
+    // 3. Convertir a un formato más eficiente
+
+    // Podemos añadir comentarios con recomendaciones para optimizaciones en el frontend
+    const estimatedSize = Math.round(imageDataUrl.length * 0.75); // Aproximación del tamaño en bytes
+    if (estimatedSize > 1000000) {
+      // Si es mayor a ~1MB
+      console.warn(
+        `Imagen grande (aprox. ${Math.round(estimatedSize / 1024)}KB). Considerar redimensionar en el frontend.`,
+      );
+    }
+
+    return imageDataUrl;
+  }
+
+  /**
    * Prepara el prompt para enviar a OpenAI para la evaluación del dibujo.
    */
   private createEvaluationPrompt(imageDataUrl: string, wordToGuess: string): OpenAI.Chat.ChatCompletionMessageParam[] {
@@ -101,8 +146,18 @@ class OpenAIService {
       };
     }
 
+    // Formatear y validar la imagen antes de procesarla
+    const formattedImage = this.formatImageForOpenAI(imageDataUrl);
+    if (!formattedImage) {
+      return {
+        isCorrect: false,
+        justification: 'Error: El formato de la imagen no es válido.',
+        error: 'Invalid image format',
+      };
+    }
+
     // Generar clave de caché usando hash para la imagen
-    const imageHash = crypto.createHash('sha256').update(imageDataUrl).digest('hex');
+    const imageHash = crypto.createHash('sha256').update(formattedImage).digest('hex');
     const cacheKey = `${imageHash}::${wordToGuess}`;
 
     // Verificar caché
@@ -112,7 +167,7 @@ class OpenAIService {
     }
     console.log(`Cache miss for key: ${cacheKey}`);
 
-    const messages = this.createEvaluationPrompt(imageDataUrl, wordToGuess);
+    const messages = this.createEvaluationPrompt(formattedImage, wordToGuess);
 
     try {
       const completion = await this.openai.chat.completions.create({
