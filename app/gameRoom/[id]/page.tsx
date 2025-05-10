@@ -1,15 +1,15 @@
+import React from 'react';
 import GameRoomClient from './GameRoomClient';
 
 interface GameRoomPageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
-export default async function GameRoomPage({ params }: GameRoomPageProps) {
-  // Extraer el ID desde los parámetros en el lado del servidor
-  const { id } = params;
+export default function GameRoomPage({ params }: GameRoomPageProps) {
+  // Desenvolver los parámetros utilizando React.use() como recomienda Next.js
+  const resolvedParams = React.use(params);
   
-  // Renderizar el componente cliente con el ID como prop
-  return <GameRoomClient roomId={id} />;
+  return <GameRoomClient roomId={resolvedParams.id} />;
 } 
