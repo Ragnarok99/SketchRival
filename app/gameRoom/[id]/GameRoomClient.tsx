@@ -15,12 +15,12 @@ interface Room {
   // Añadir otros campos que pueda tener Room según tu aplicación
 }
 
-export default function GameRoomClient({ params }: { params: { id: string } }) {
+export default function GameRoomClient({ roomId }: { roomId: string }) {
   const { isAuthenticated, user } = useAuth();
   const router = useRouter();
   
-  // Obtener roomId directamente de params.id
-  const roomId = params.id;
+  // Ya no necesitamos obtener roomId de params.id
+  // const roomId = params.id;
   
   const [roomData, setRoomData] = useState<Room | null>(null);
   const [error, setError] = useState<string | null>(null);
