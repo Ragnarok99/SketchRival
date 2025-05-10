@@ -10,6 +10,7 @@ import {
   PlayerStatus,
 } from '../models';
 import socketService from './socket.service';
+import leaderboardService from './leaderboardService';
 
 // Tipo para las transiciones del estado
 type StateTransition = {
@@ -679,11 +680,25 @@ class GameStateMachineService {
       gameState.drawings = [];
     }
 
+    // Validar y procesar la imagen antes de guardarla
+    let processedImageData = payload.imageData;
+
+    // Verificar si es una imagen válida
+    if (
+      !processedImageData ||
+      typeof processedImageData !== 'string' ||
+      !processedImageData.startsWith('data:image/')
+    ) {
+      throw new Error('Formato de imagen no válido');
+    }
+
+    // Guardar con datos procesados
     gameState.drawings.push({
       userId: new Types.ObjectId(userId),
-      imageData: payload.imageData,
+      imageData: processedImageData,
       word: gameState.currentWord || 'desconocido',
       round: gameState.currentRound,
+      createdAt: new Date(), // Usar createdAt en lugar de timestamp para coincidir con el tipo
     });
 
     // Configurar tiempo para adivinar (60 segundos por defecto)
@@ -701,10 +716,22 @@ class GameStateMachineService {
       ?.to(roomId)
       .emit('game:drawingSubmitted', {
         drawingId: gameState.drawings.length - 1,
-        imageData: payload.imageData,
+        imageData: processedImageData,
         drawerId: userId,
         timeRemaining: gameState.timeRemaining,
+        round: gameState.currentRound,
       });
+
+    // Actualizar estado del juego en el servidor para reconexiones
+    const gameStateUpdate = {
+      gameState: 'GUESSING',
+      drawings: gameState.drawings.length,
+      currentDrawing: gameState.drawings.length - 1,
+      currentDrawerId: userId,
+      timeRemaining: gameState.timeRemaining,
+    };
+
+    socketService.updateRoomState(roomId, gameStateUpdate);
   }
 
   // Manejar timeout en dibujo
@@ -965,6 +992,20 @@ class GameStateMachineService {
       socketService.sendSystemMessage(roomId, '¡Juego terminado!');
     }
 
+    // Preparar el objeto de scores para el evento
+    const scoresForEvent: Record<string, number> = {};
+    if (gameState.scores instanceof Map) {
+      for (const [key, value] of gameState.scores.entries()) {
+        scoresForEvent[key] = value;
+      }
+    } else if (gameState.scores && typeof gameState.scores === 'object') {
+      // Si ya es un objeto (aunque el tipo IGameStateData espera Map, podría venir así de DB a veces si no se reconstruye bien)
+      Object.assign(scoresForEvent, gameState.scores);
+    } else {
+      // Fallback si scores es undefined o un tipo inesperado
+      console.warn(`gameState.scores tenía un tipo inesperado en handleEndGame para la sala ${roomId}`);
+    }
+
     // Enviar evento de fin de juego con resultados
     socketService
       .getIO()
@@ -978,10 +1019,28 @@ class GameStateMachineService {
               rank: winner.rank,
             }
           : null,
-        podium: rankedPlayers.slice(0, 3), // Top 3 jugadores
-        allPlayers: rankedPlayers, // Todos los jugadores ordenados
-        scores: Object.fromEntries(gameState.scores || new Map()),
+        podium: rankedPlayers.slice(0, 3),
+        allPlayers: rankedPlayers,
+        scores: scoresForEvent, // Usar el objeto convertido
       });
+
+    // Actualizar Leaderboard
+    for (const player of rankedPlayers) {
+      try {
+        // Asumimos que player.userId es el ObjectId del usuario
+        // y player.score es la puntuación final de la partida.
+        // El nivel no se está rastreando actualmente en GamePlayerModel, por lo que se omite.
+        await leaderboardService.updatePlayerScore(
+          player.userId.toString(), // Asegurarse que sea string si el servicio lo espera así
+          player.username,
+          player.score, // Esta es la puntuación final de la partida para este jugador
+          undefined, // Nivel omitido por ahora
+          'global', // Categoría global por defecto
+        );
+      } catch (error) {
+        console.error(`Error actualizando leaderboard para ${player.username} (ID: ${player.userId}):`, error);
+      }
+    }
 
     // Actualizar estado de la sala
     await GameRoomModel.findByIdAndUpdate(roomId, {

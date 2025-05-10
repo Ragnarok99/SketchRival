@@ -6,9 +6,11 @@ import {
   getLeaderboard,
   getActiveSeasons,
   getSeasonLeaderboard,
+  getPlayerRankById,
   ApiLeaderboardEntry,
   ApiSeason,
   ApiSeasonReward,
+  PlayerRankResponse
 } from '../services/apiService';
 import { useAuth } from '../auth/AuthContext';
 
@@ -39,26 +41,30 @@ export default function LeaderboardsPage() {
   
   const [isLoadingGlobal, setIsLoadingGlobal] = useState(true);
   const [isLoadingSeason, setIsLoadingSeason] = useState(true);
+  const [isLoadingPlayerRank, setIsLoadingPlayerRank] = useState(false);
   
   const [errorGlobal, setErrorGlobal] = useState<string | null>(null);
   const [errorSeason, setErrorSeason] = useState<string | null>(null);
+  const [errorPlayerRank, setErrorPlayerRank] = useState<string | null>(null);
   
   const [globalPage, setGlobalPage] = useState(1);
   const [globalTotalPages, setGlobalTotalPages] = useState(1);
   const [seasonPage, setSeasonPage] = useState(1);
   const [seasonTotalPages, setSeasonTotalPages] = useState(1);
+  
+  const [playerGlobalRank, setPlayerGlobalRank] = useState<PlayerRankResponse | null>(null);
 
-  // const { authToken } = useAuth(); // Si se necesita para my-rank
+  const { user } = useAuth();
 
   useEffect(() => {
     const fetchGlobalLeaderboard = async () => {
       setIsLoadingGlobal(true);
       setErrorGlobal(null);
       try {
-        const data = await getLeaderboard('global', globalPage, 10); // 10 por página para global
+        const data = await getLeaderboard('global', globalPage, 10);
         const uiEntries = data.entries.map((entry: ApiLeaderboardEntry) => ({
           ...entry,
-          rank: entry.rank || 0, // Asignar 0 si no hay rank
+          rank: entry.rank || 0,
           avatarColor: assignAvatarColor(entry.username),
         }));
         setGlobalLeaderboard(uiEntries);
@@ -79,13 +85,13 @@ export default function LeaderboardsPage() {
       try {
         const seasons = await getActiveSeasons();
         if (seasons && seasons.length > 0) {
-          const currentSeason = seasons[0]; // Asumir la primera activa
+          const currentSeason = seasons[0];
           setActiveSeason(currentSeason);
           
           const data = await getSeasonLeaderboard(currentSeason.leaderboardCategoryKey, seasonPage, 10);
           const uiEntries = data.entries.map((entry: ApiLeaderboardEntry) => ({
             ...entry,
-            rank: entry.rank || 0, // Asignar 0 si no hay rank
+            rank: entry.rank || 0,
             avatarColor: assignAvatarColor(entry.username),
           }));
           setSeasonLeaderboard(uiEntries);
@@ -104,6 +110,25 @@ export default function LeaderboardsPage() {
     fetchSeasonData();
   }, [seasonPage]);
 
+  // Efecto para obtener el rango del jugador actual
+  useEffect(() => {
+    if (user?.userId) {
+      const fetchPlayerRank = async () => {
+        setIsLoadingPlayerRank(true);
+        setErrorPlayerRank(null);
+        try {
+          const rankData = await getPlayerRankById(user.userId, 'global');
+          setPlayerGlobalRank(rankData);
+        } catch (err) {
+          setErrorPlayerRank(err instanceof Error ? err.message : 'Error al cargar tu rango.');
+          setPlayerGlobalRank(null);
+        }
+        setIsLoadingPlayerRank(false);
+      };
+      fetchPlayerRank();
+    }
+  }, [user]);
+
   // Funciones de paginación para global
   const handleGlobalNextPage = () => { if (globalPage < globalTotalPages) setGlobalPage(p => p + 1); };
   const handleGlobalPrevPage = () => { if (globalPage > 1) setGlobalPage(p => p - 1); };
@@ -117,6 +142,24 @@ export default function LeaderboardsPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold text-center mb-12 text-gray-800">Tablas de Clasificación</h1>
+
+      {/* Mostrar Rango del Jugador Actual (Global) */}
+      {user && playerGlobalRank && playerGlobalRank.rank && (
+        <div className="mb-8 p-4 bg-yellow-100 border border-yellow-300 rounded-lg shadow text-center">
+          <p className="text-lg font-semibold text-yellow-800">
+            ¡Tu Rango Global es <span className="font-bold text-2xl">#{playerGlobalRank.rank}</span> con {playerGlobalRank.score} puntos!
+          </p>
+        </div>
+      )}
+      {user && isLoadingPlayerRank && (
+         <p className="text-center text-gray-600 mb-8">Cargando tu rango...</p>
+      )}
+      {user && !isLoadingPlayerRank && errorPlayerRank && (
+         <p className="text-center text-orange-600 mb-8">No se pudo cargar tu rango: {errorPlayerRank}</p>
+      )}
+      {user && !isLoadingPlayerRank && !errorPlayerRank && playerGlobalRank && playerGlobalRank.rank === null && (
+        <p className="text-center text-gray-600 mb-8">Aún no apareces en la clasificación global. ¡Sigue jugando!</p>
+      )}
 
       {/* Sección de Temporada Activa */}
       {isLoadingSeason && <p className="text-center text-gray-600 py-5">Cargando información de temporada...</p>}

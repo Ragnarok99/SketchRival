@@ -23,6 +23,10 @@ export enum SocketEvent {
   DISCONNECT = 'disconnect',
   ERROR = 'error',
   RECONNECT = 'reconnect',
+  HEARTBEAT = 'heartbeat', // Nuevo evento para heartbeat
+  RECONNECT_ATTEMPT = 'reconnectAttempt', // Nuevo evento para intentos de reconexión
+  SYNC_REQUEST = 'sync:request', // Nuevo evento para solicitar sincronización
+  SYNC_COMPLETE = 'sync:complete', // Nuevo evento para confirmar sincronización
 
   // Eventos de sala
   ROOM_JOIN = 'room:join',
@@ -41,16 +45,19 @@ export enum SocketEvent {
   // Eventos de juego
   GAME_START = 'game:start',
   GAME_UPDATE = 'game:update',
+  GAME_STATE_CHANGED = 'game:stateChanged', // Nuevo evento para cambios de estado
   GAME_END = 'game:end',
   GAME_TURN = 'game:turn',
   GAME_SUBMIT = 'game:submit',
   GAME_VOTE = 'game:vote',
+  GAME_TIME_UPDATE = 'game:timeUpdate', // Nuevo evento para actualizaciones de tiempo
 
   // Eventos de usuario
   USER_STATUS = 'user:status',
   USER_ACTIVITY = 'user:activity',
   USER_TYPING = 'user:typing',
   USER_NOTIFICATION = 'user:notification',
+  USER_RECONNECTED = 'user:reconnected', // Nuevo evento para reconexión de usuario
 }
 
 // Tipo para representar un cliente de Socket.io
@@ -59,6 +66,19 @@ export interface SocketClient {
   userId: string;
   username: string;
   roomId?: string;
+  lastActivity: number; // Timestamp de última actividad
+  isConnected: boolean; // Estado de conexión
+  latencyMs?: number; // Latencia en ms
+  deviceInfo?: string; // Información del dispositivo
+}
+
+// Tipo para mensajes en cola
+interface QueuedMessage {
+  event: string;
+  data: any;
+  roomId?: string;
+  userId?: string;
+  timestamp: number;
 }
 
 // Servicio principal de Socket.io
@@ -66,6 +86,13 @@ class SocketService {
   private io: SocketServer | null = null;
   private clients: Map<string, SocketClient> = new Map();
   private rooms: Map<string, Set<string>> = new Map(); // roomId -> Set of socketIds
+
+  // Nuevas propiedades para sincronización
+  private readonly heartbeatInterval = 10000; // 10 segundos
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+  private messageQueue: Map<string, QueuedMessage[]> = new Map(); // userId -> mensajes
+  private roomStates: Map<string, any> = new Map(); // roomId -> último estado
+  private disconnectedUsers: Map<string, { timestamp: number; roomId?: string }> = new Map(); // userId -> info
 
   // Inicializar el servidor Socket.io
   initialize(server: Server) {
@@ -86,6 +113,9 @@ class SocketService {
 
     // Configurar gestión de conexiones
     this.io.on(SocketEvent.CONNECT, this.handleConnection.bind(this));
+
+    // Iniciar heartbeat
+    this.startHeartbeat();
 
     return this.io;
   }
@@ -110,6 +140,15 @@ class SocketService {
 
       // Adjuntar información del usuario al objeto socket
       socket.user = { userId, username };
+
+      // Detectar si es una reconexión
+      const isReconnection = this.disconnectedUsers.has(userId);
+      socket.isReconnection = isReconnection;
+
+      if (isReconnection) {
+        logger.info(`Reconnection detected for user ${username} (${userId})`);
+      }
+
       next();
     } catch (error) {
       logger.error('Socket authentication error:', error);
@@ -120,23 +159,98 @@ class SocketService {
   // Manejar nueva conexión
   private handleConnection(socket: any) {
     const { userId, username } = socket.user;
-    logger.info(`Socket connected: ${socket.id} (User: ${username}, ID: ${userId})`);
+    const isReconnection = socket.isReconnection || false;
+    const deviceInfo = socket.handshake.headers['user-agent'] || 'Unknown';
+
+    logger.info(`Socket connected: ${socket.id} (User: ${username}, ID: ${userId}, Reconnect: ${isReconnection})`);
 
     // Registrar cliente
     this.clients.set(socket.id, {
       id: socket.id,
       userId,
       username,
+      lastActivity: Date.now(),
+      isConnected: true,
+      deviceInfo,
     });
+
+    // Si es una reconexión, manejar ese flujo
+    if (isReconnection) {
+      this.handleReconnection(socket, userId);
+    }
 
     // Configurar eventos
     this.setupRoomEvents(socket);
     this.setupChatEvents(socket);
     this.setupGameEvents(socket);
     this.setupUserEvents(socket);
+    this.setupSyncEvents(socket);
 
     // Manejar desconexión
     socket.on(SocketEvent.DISCONNECT, () => this.handleDisconnect(socket));
+
+    // Registrar latencia
+    socket.on(SocketEvent.HEARTBEAT, (clientTimestamp: number) => {
+      const client = this.clients.get(socket.id);
+      if (client) {
+        client.latencyMs = Date.now() - clientTimestamp;
+        client.lastActivity = Date.now();
+        this.clients.set(socket.id, client);
+      }
+    });
+  }
+
+  // Manejar reconexión de usuario
+  private handleReconnection(socket: any, userId: string) {
+    const disconnectInfo = this.disconnectedUsers.get(userId);
+    if (!disconnectInfo) return;
+
+    const { roomId } = disconnectInfo;
+
+    // Si estaba en una sala, reincorporarle
+    if (roomId) {
+      const client = this.clients.get(socket.id);
+      if (client) {
+        this.addClientToRoom(socket, client, roomId);
+
+        // Enviar evento de reconexión
+        this.io?.to(roomId).emit(SocketEvent.USER_RECONNECTED, {
+          userId,
+          username: client.username,
+        });
+
+        // Enviar estado actual
+        const currentState = this.roomStates.get(roomId);
+        if (currentState) {
+          socket.emit(SocketEvent.GAME_STATE_CHANGED, currentState);
+        }
+
+        // Procesar mensajes en cola para este usuario
+        this.processQueuedMessages(userId, socket);
+      }
+    }
+
+    // Eliminar de la lista de desconectados
+    this.disconnectedUsers.delete(userId);
+  }
+
+  // Procesar mensajes en cola para un usuario
+  private processQueuedMessages(userId: string, socket: any) {
+    const messages = this.messageQueue.get(userId) || [];
+    if (messages.length === 0) return;
+
+    logger.info(`Processing ${messages.length} queued messages for user ${userId}`);
+
+    // Ordenar por timestamp
+    messages.sort((a, b) => a.timestamp - b.timestamp);
+
+    // Enviar mensajes al cliente
+    for (const msg of messages) {
+      socket.emit(msg.event, msg.data);
+    }
+
+    // Limpiar cola
+    this.messageQueue.delete(userId);
   }
 
   // Manejar desconexión
@@ -146,13 +260,39 @@ class SocketService {
 
     logger.info(`Socket disconnected: ${socket.id} (User: ${client.username})`);
 
-    // Si el cliente estaba en una sala, notificar a otros
-    if (client.roomId) {
-      this.handleClientLeaveRoom(socket, client.roomId);
-    }
+    // Registrar usuario como desconectado (para posible reconexión)
+    this.disconnectedUsers.set(client.userId, {
+      timestamp: Date.now(),
+      roomId: client.roomId,
+    });
 
-    // Eliminar cliente
-    this.clients.delete(socket.id);
+    // Marcarlo como desconectado pero no eliminarlo inmediatamente
+    client.isConnected = false;
+    this.clients.set(socket.id, client);
+
+    // Si el cliente estaba en una sala, notificar a otros pero mantenerlo ahí por un tiempo
+    if (client.roomId) {
+      // Notificar desconexión temporal
+      socket.to(client.roomId).emit(SocketEvent.USER_STATUS, {
+        userId: client.userId,
+        username: client.username,
+        status: 'disconnected',
+        temporary: true,
+      });
+
+      // Programar eliminación completa si no se reconecta en X tiempo
+      setTimeout(() => {
+        // Verificar si sigue desconectado
+        if (this.disconnectedUsers.has(client.userId)) {
+          this.handleClientLeaveRoom(socket, client.roomId!);
+          this.clients.delete(socket.id);
+          logger.info(`Removing disconnected client ${client.username} after timeout`);
+        }
+      }, 60000); // 1 minuto de espera
+    } else {
+      // Si no estaba en una sala, eliminar inmediatamente
+      this.clients.delete(socket.id);
+    }
   }
 
   // Configurar eventos relacionados con salas
@@ -196,8 +336,11 @@ class SocketService {
           },
         });
 
-        // Devolver éxito y datos de la sala
-        callback(null, {
+        // Obtener el estado actual de la sala si existe
+        const currentState = this.roomStates.get(roomId);
+
+        // Construir respuesta
+        const responseData = {
           room: {
             id: roomId,
             // TODO: Obtener datos reales de la sala
@@ -215,7 +358,12 @@ class SocketService {
               })
               .filter(Boolean),
           },
-        });
+          // Incluir estado del juego si existe
+          gameState: currentState || null,
+        };
+
+        // Devolver éxito y datos de la sala
+        callback(null, responseData);
       } catch (error) {
         logger.error('Error joining room:', error);
         callback('Error joining room');
@@ -269,7 +417,6 @@ class SocketService {
               .filter(Boolean),
           },
         });
-
         callback?.();
       } catch (error) {
         logger.error('Error setting ready status:', error);
@@ -294,13 +441,111 @@ class SocketService {
           roomId,
           startedById: client.userId,
         });
-
         callback?.();
       } catch (error) {
         logger.error('Error starting game:', error);
         callback?.('Error starting game');
       }
     });
+  }
+
+  // Eventos para sincronización de estado del juego
+  private setupSyncEvents(socket: any) {
+    // Solicitud de sincronización
+    socket.on(SocketEvent.SYNC_REQUEST, (data: any, callback?: Function) => {
+      try {
+        const { roomId, lastTimestamp } = data;
+        const client = this.clients.get(socket.id);
+
+        if (!client || !roomId) {
+          return callback?.({ success: false, error: 'Invalid request' });
+        }
+
+        // Obtener estado actual
+        const currentState = this.roomStates.get(roomId);
+
+        if (!currentState) {
+          return callback?.({ success: false, error: 'No state available' });
+        }
+
+        // Responder con el estado actual
+        callback?.({
+          success: true,
+          state: currentState,
+          timestamp: Date.now(),
+        });
+
+        // Actualizar timestamp de actividad
+        client.lastActivity = Date.now();
+        this.clients.set(socket.id, client);
+      } catch (error) {
+        logger.error('Error syncing state:', error);
+        callback?.({ success: false, error: 'Error syncing state' });
+      }
+    });
+  }
+
+  // Configurar eventos relacionados con el juego
+  private setupGameEvents(socket: any) {
+    // Implementar eventos específicos del juego
+    socket.on(SocketEvent.GAME_SUBMIT, (data: any, callback?: Function) => {
+      // Lógica para manejar envío de dibujos/respuestas
+      // TODO: Implementar cuando se desarrolle el juego
+      callback?.();
+    });
+
+    socket.on(SocketEvent.GAME_VOTE, (data: any, callback?: Function) => {
+      // Lógica para manejar votaciones
+      // TODO: Implementar cuando se desarrolle el juego
+      callback?.();
+    });
+  }
+
+  // Iniciar el heartbeat para mantener conexiones activas
+  private startHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+    }
+
+    this.heartbeatTimer = setInterval(() => {
+      // Enviar heartbeat a todos los clientes
+      if (this.io) {
+        this.io.emit(SocketEvent.HEARTBEAT, { timestamp: Date.now() });
+
+        // Detectar clientes inactivos
+        this.checkInactiveClients();
+      }
+    }, this.heartbeatInterval);
+
+    logger.info(`Heartbeat started with interval of ${this.heartbeatInterval}ms`);
+  }
+
+  // Verificar clientes inactivos
+  private checkInactiveClients() {
+    const now = Date.now();
+    const inactivityThreshold = 3 * this.heartbeatInterval; // 3 veces el intervalo de heartbeat
+
+    for (const [socketId, client] of this.clients.entries()) {
+      // Si el cliente está conectado pero no ha tenido actividad
+      if (client.isConnected && now - client.lastActivity > inactivityThreshold) {
+        logger.warn(
+          `Client ${client.username} (${socketId}) inactive for too long, marking as potentially disconnected`,
+        );
+
+        // Actualizar estado de conexión
+        client.isConnected = false;
+        this.clients.set(socketId, client);
+
+        // Notificar a los demás si está en una sala
+        if (client.roomId) {
+          this.io?.to(client.roomId).emit(SocketEvent.USER_STATUS, {
+            userId: client.userId,
+            username: client.username,
+            status: 'inactive',
+          });
+        }
+      }
+    }
   }
 
   // Configurar eventos relacionados con chat
@@ -384,26 +629,14 @@ class SocketService {
         };
         this.io.to(roomId).emit(SocketEvent.CHAT_MESSAGE, message);
         callback?.();
+
+        // Actualizar timestamp de actividad
+        client.lastActivity = Date.now();
+        this.clients.set(socket.id, client);
       } catch (error) {
         logger.error('Error sending chat message:', error);
         callback?.('Error sending chat message');
       }
-    });
-  }
-
-  // Configurar eventos relacionados con el juego
-  private setupGameEvents(socket: any) {
-    // Implementar eventos específicos del juego
-    socket.on(SocketEvent.GAME_SUBMIT, (data: any, callback?: Function) => {
-      // Lógica para manejar envío de dibujos/respuestas
-      // TODO: Implementar cuando se desarrolle el juego
-      callback?.();
-    });
-
-    socket.on(SocketEvent.GAME_VOTE, (data: any, callback?: Function) => {
-      // Lógica para manejar votaciones
-      // TODO: Implementar cuando se desarrolle el juego
-      callback?.();
     });
   }
 
@@ -415,6 +648,10 @@ class SocketService {
       const client = this.clients.get(socket.id);
 
       if (!client || !client.roomId) return;
+
+      // Actualizar timestamp de actividad
+      client.lastActivity = Date.now();
+      this.clients.set(socket.id, client);
 
       // Transmitir estado a otros en la sala
       socket.to(client.roomId).emit(SocketEvent.USER_STATUS, {
@@ -430,6 +667,10 @@ class SocketService {
       const client = this.clients.get(socket.id);
 
       if (!client || !client.roomId) return;
+
+      // Actualizar timestamp de actividad
+      client.lastActivity = Date.now();
+      this.clients.set(socket.id, client);
 
       // Transmitir estado a otros en la sala
       socket.to(client.roomId).emit(SocketEvent.USER_TYPING, {
@@ -447,6 +688,7 @@ class SocketService {
 
     // Actualizar referencia del cliente
     client.roomId = roomId;
+    client.lastActivity = Date.now();
     this.clients.set(socket.id, client);
 
     // Registrar en el mapa de salas
@@ -476,6 +718,9 @@ class SocketService {
     // Si la sala queda vacía, eliminarla
     if (this.rooms.get(roomId)?.size === 0) {
       this.rooms.delete(roomId);
+
+      // Eliminar estado de la sala
+      this.roomStates.delete(roomId);
     } else {
       // Notificar a otros en la sala
       socket.to(roomId).emit(SocketEvent.ROOM_PLAYER_LEFT, {
@@ -521,10 +766,55 @@ class SocketService {
 
   // Enviar notificación a un usuario específico
   sendUserNotification(socketId: string, type: string, message: string) {
+    // Si es un ID de usuario en lugar de socket
+    if (socketId.length < 20) {
+      // Heurística simple para diferenciar IDs de usuario vs socket
+      // Buscar todos los sockets conectados del usuario
+      let found = false;
+      for (const [sid, client] of this.clients.entries()) {
+        if (client.userId === socketId && client.isConnected) {
+          const socket = this.io?.sockets.sockets.get(sid);
+          if (socket) {
+            socket.emit(SocketEvent.USER_NOTIFICATION, { type, message });
+            found = true;
+          }
+        }
+      }
+
+      // Si no se encontró socket activo, encolar mensaje
+      if (!found) {
+        this.queueMessageForUser(socketId, SocketEvent.USER_NOTIFICATION, { type, message });
+      }
+      return;
+    }
+
+    // Es un ID de socket
     const socket = this.io?.sockets.sockets.get(socketId);
-    if (!socket) return;
+    if (!socket) {
+      // Buscar el userId asociado al socketId
+      const client = this.clients.get(socketId);
+      if (client) {
+        this.queueMessageForUser(client.userId, SocketEvent.USER_NOTIFICATION, { type, message });
+      }
+      return;
+    }
 
     socket.emit(SocketEvent.USER_NOTIFICATION, { type, message });
+  }
+
+  // Encolar mensaje para usuario desconectado
+  private queueMessageForUser(userId: string, event: string, data: any) {
+    if (!this.messageQueue.has(userId)) {
+      this.messageQueue.set(userId, []);
+    }
+
+    this.messageQueue.get(userId)?.push({
+      event,
+      data,
+      timestamp: Date.now(),
+    });
+
+    logger.info(`Message queued for disconnected user ${userId}: ${event}`);
   }
 
   // Enviar notificación a todos los usuarios en una sala
@@ -532,6 +822,17 @@ class SocketService {
     if (!this.io) return;
 
     this.io.to(roomId).emit(SocketEvent.USER_NOTIFICATION, { type, message });
+  }
+
+  // Actualizar y almacenar estado de una sala
+  updateRoomState(roomId: string, state: any) {
+    // Guardar el estado más reciente
+    this.roomStates.set(roomId, {
+      ...state,
+      timestamp: Date.now(),
+    });
+
+    logger.debug(`Room state updated for ${roomId}`);
   }
 
   // Obtener instancia del servidor Socket.io

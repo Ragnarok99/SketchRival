@@ -350,9 +350,10 @@ export default function WaitingRoom({
       calculateReadyStats(formattedPlayers);
       
       // Mostrar notificación de jugador unido
+      const newPlayer = formattedPlayers.find((p: any) => !players.some((existingP: Player) => existingP.id === p.id));
       setNotification({
         type: 'info',
-        message: `${formattedPlayers.find((p: any) => !players.some((existingP: Player) => existingP.id === p.id))?.username || 'Un jugador'} se ha unido a la sala.`
+        message: `${newPlayer?.username || 'Un jugador'} se ha unido a la sala.`
       });
       
       // Limpiar notificación después de 3 segundos
@@ -610,49 +611,49 @@ export default function WaitingRoom({
   
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 bg-white rounded-lg shadow">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-        <p className="text-gray-600">Cargando sala de espera...</p>
+      <div className="flex flex-col items-center justify-center p-6 sm:p-8 bg-white rounded-lg shadow">
+        <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+        <p className="text-gray-600 text-sm sm:text-base">Cargando sala de espera...</p>
       </div>
     );
   }
   
   return (
-    <div className="bg-white rounded-lg shadow p-6">
+    <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 w-full max-w-4xl mx-auto">
       {/* Notificación */}
       {notification && (
-        <div className={`mb-4 p-3 rounded text-sm ${
-          notification.type === 'success' ? 'bg-green-100 text-green-800' :
-          notification.type === 'error' ? 'bg-red-100 text-red-800' :
-          notification.type === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-          'bg-blue-100 text-blue-800'
+        <div className={`mb-4 p-3 rounded text-xs sm:text-sm ${
+          notification.type === 'success' ? 'bg-green-100 text-green-700' :
+          notification.type === 'error' ? 'bg-red-100 text-red-700' :
+          notification.type === 'warning' ? 'bg-yellow-100 text-yellow-700' :
+          'bg-blue-100 text-blue-700'
         }`}>
           {notification.message}
         </div>
       )}
     
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-        <div>
-          <h2 className="text-2xl font-bold">{roomName}</h2>
-          <p className="text-gray-600">Sala de espera ({players.length}/{readyStats.totalPlayers} jugadores)</p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6">
+        <div className="mb-3 sm:mb-0">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-800">{roomName}</h2>
+          <p className="text-sm sm:text-base text-gray-500">Sala de espera ({players.length}/{readyStats.totalPlayers} jugadores)</p>
         </div>
         
         {isPrivate && accessCode && (
-          <div className="mt-3 sm:mt-0">
-            <p className="text-sm text-gray-600 mb-1">Código de acceso:</p>
+          <div className="mt-2 sm:mt-0">
+            <p className="text-xs sm:text-sm text-gray-500 mb-1">Código de acceso:</p>
             <div className="flex items-center">
-              <code className="bg-gray-100 px-3 py-1 rounded text-sm font-mono">
+              <code className="bg-gray-100 px-2 sm:px-3 py-1 rounded text-xs sm:text-sm font-mono">
                 {showCode ? accessCode : '******'}
               </code>
               <button
-                className="ml-2 text-gray-500 hover:text-gray-700"
+                className="ml-2 text-gray-500 hover:text-gray-700 text-lg"
                 onClick={() => setShowCode(!showCode)}
                 title={showCode ? 'Ocultar código' : 'Mostrar código'}
               >
-                {showCode ? '👁️' : '👁️‍🗨️'}
+                {showCode ? '👁️' : '🙈'}
               </button>
               <button
-                className="ml-2 text-gray-500 hover:text-gray-700"
+                className="ml-2 text-gray-500 hover:text-gray-700 text-lg"
                 onClick={handleCopyCode}
                 title="Copiar código"
               >
@@ -665,7 +666,7 @@ export default function WaitingRoom({
       
       {/* Mensaje de estado */}
       {readyStats.playerCount > 0 && (
-        <div className={`mb-6 p-3 rounded ${readyStats.allReady ? 'bg-green-100' : 'bg-yellow-100'}`}>
+        <div className={`mb-4 sm:mb-6 p-3 rounded text-sm sm:text-base ${readyStats.allReady ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
           <p className="text-center">
             {readyStats.allReady
               ? `¡Todos listos! ${readyStats.readyCount}/${readyStats.playerCount} jugadores preparados`
@@ -674,50 +675,49 @@ export default function WaitingRoom({
         </div>
       )}
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
         {/* Lista de jugadores */}
-        <div className="md:col-span-2">
-          <h3 className="text-lg font-semibold mb-3">Jugadores</h3>
+        <div className="md:col-span-2 bg-gray-50 p-3 sm:p-4 rounded-lg">
+          <h3 className="text-base sm:text-lg font-semibold mb-3">Jugadores</h3>
           
           {players.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">No hay jugadores en la sala</p>
+            <p className="text-gray-500 text-center py-4 text-sm sm:text-base">No hay jugadores en la sala</p>
           ) : (
             <ul className="divide-y divide-gray-200">
               {players.map((player) => (
-                <li key={player.id} className="py-3 flex items-center justify-between">
-                  <div className="flex items-center">
-                    {/* Avatar (círculo de color) */}
+                <li key={player.id} className="py-2.5 sm:py-3 flex items-center justify-between">
+                  <div className="flex items-center min-w-0">
                     <div 
-                      className="w-8 h-8 rounded-full flex items-center justify-center mr-3"
+                      className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center mr-2 sm:mr-3 flex-shrink-0"
                       style={{ backgroundColor: player.avatarColor }}
                     >
-                      <span className="text-white text-sm font-medium">
+                      <span className="text-white text-xs sm:text-sm font-medium">
                         {player.username.charAt(0).toUpperCase()}
                       </span>
                     </div>
                     
                     {/* Nombre de usuario */}
-                    <div>
-                      <span className="font-medium">{player.username}</span>
+                    <div className="min-w-0">
+                      <span className="font-medium text-sm sm:text-base truncate block" title={player.username}>{player.username}</span>
                       {player.isHost && (
-                        <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                        <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-full ml-1 sm:ml-2">
                           Anfitrión
                         </span>
                       )}
                     </div>
                   </div>
                   
-                  <div className="flex items-center">
+                  <div className="flex items-center flex-shrink-0 ml-2">
                     {/* Estado de "listo" */}
                     {player.isReady ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-2">
-                        <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                      <span className="inline-flex items-center px-2 py-0.5 sm:px-2.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                        <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                         </svg>
                         Listo
                       </span>
                     ) : (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 mr-2">
+                      <span className="inline-flex items-center px-2 py-0.5 sm:px-2.5 rounded-full text-xs font-medium bg-gray-200 text-gray-700">
                         Esperando
                       </span>
                     )}
@@ -726,10 +726,10 @@ export default function WaitingRoom({
                     {isHost && player.id !== user?.userId && (
                       <button
                         onClick={() => kickPlayer(player.id)}
-                        className="text-red-500 hover:text-red-700 ml-2"
+                        className="text-red-500 hover:text-red-700 ml-1.5 sm:ml-2 p-1 rounded-full hover:bg-red-100"
                         title="Expulsar jugador"
                       >
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                         </svg>
                       </button>
@@ -742,23 +742,24 @@ export default function WaitingRoom({
         </div>
         
         {/* Chat de la sala */}
-        <div className="md:col-span-1 flex flex-col">
+        <div className="md:col-span-1 flex flex-col h-[300px] md:h-auto bg-gray-50 p-3 sm:p-4 rounded-lg">
+          <h3 className="text-base sm:text-lg font-semibold mb-3">Chat de la Sala</h3>
           <ChatBox roomId={roomId} />
         </div>
       </div>
       
       {/* Acciones */}
-      <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 mt-6">
+      <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 mt-4 sm:mt-6 w-full md:w-auto">
         {!isHost && (
           <button
             onClick={toggleReady}
-            className={`flex-1 py-2 px-4 rounded-lg ${
+            className={`w-full md:w-auto flex-1 py-2.5 px-4 rounded-lg text-sm sm:text-base transition-colors duration-150 ${
               readyStatus 
-                ? 'bg-green-600 hover:bg-green-700 text-white' 
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                ? 'bg-green-500 hover:bg-green-600 text-white' 
+                : 'bg-blue-500 hover:bg-blue-600 text-white'
             }`}
           >
-            {readyStatus ? 'Listo ✓' : 'Marcar como listo'}
+            {readyStatus ? '¡Listo! ✓' : 'Marcar como listo'}
           </button>
         )}
         
@@ -766,25 +767,25 @@ export default function WaitingRoom({
           <button
             onClick={startGame}
             disabled={!readyStats.canStart}
-            className={`flex-1 py-2 px-4 rounded-lg ${
+            className={`w-full md:w-auto flex-1 py-2.5 px-4 rounded-lg text-sm sm:text-base transition-colors duration-150 ${
               readyStats.canStart
-                ? 'bg-green-600 hover:bg-green-700 text-white'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                ? 'bg-green-500 hover:bg-green-600 text-white'
+                : 'bg-gray-400 text-gray-700 cursor-not-allowed'
             }`}
           >
             {players.length < 2 
-              ? 'Se necesitan al menos 2 jugadores'
+              ? 'Mínimo 2 jugadores'
               : !readyStats.allReady 
-                ? 'Esperando a que todos estén listos'
-                : 'Iniciar juego'}
+                ? `Esperando (${readyStats.playerCount - readyStats.readyCount} más)`
+                : 'Iniciar Juego'}
           </button>
         )}
         
         <button
           onClick={handleLeaveRoom}
-          className="flex-1 py-2 px-4 border border-red-500 text-red-500 hover:bg-red-50 rounded-lg"
+          className="w-full md:w-auto flex-1 py-2.5 px-4 border border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600 rounded-lg text-sm sm:text-base transition-colors duration-150"
         >
-          Abandonar sala
+          Abandonar Sala
         </button>
       </div>
     </div>

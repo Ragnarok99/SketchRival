@@ -10,6 +10,7 @@ export enum SocketConnectionState {
   CONNECTED = 'connected',
   DISCONNECTED = 'disconnected',
   ERROR = 'error',
+  RECONNECTING = 'reconnecting',
 }
 
 // Interfaces para eventos comunes
@@ -65,6 +66,7 @@ interface UseSocketOptions {
   reconnectionAttempts?: number;
   reconnectionDelay?: number;
   offlineQueue?: boolean;
+  heartbeatInterval?: number;
 }
 
 // Hook principal
@@ -75,6 +77,7 @@ export default function useSocket(options: UseSocketOptions = {}) {
     reconnectionAttempts = 5,
     reconnectionDelay = 3000,
     offlineQueue = true,
+    heartbeatInterval = 10000,
   } = options;
 
   const { user } = useAuth();
@@ -83,9 +86,12 @@ export default function useSocket(options: UseSocketOptions = {}) {
     SocketConnectionState.DISCONNECTED
   );
   const [error, setError] = useState<Error | null>(null);
+  const [latency, setLatency] = useState<number | null>(null);
   const reconnectCount = useRef(0);
   const reconnectTimer = useRef<NodeJS.Timeout | null>(null);
   const messageQueue = useRef<{ event: string; data: any; callback?: Function }[]>([]);
+  const heartbeatTimer = useRef<NodeJS.Timeout | null>(null);
+  const lastHeartbeatTime = useRef<number | null>(null);
 
   // Función para conectar al socket
   const connect = useCallback(() => {
@@ -114,6 +120,7 @@ export default function useSocket(options: UseSocketOptions = {}) {
         setError(null);
         reconnectCount.current = 0;
         processQueue(socketInstance);
+        startHeartbeat(socketInstance);
       });
 
       socketInstance.on('connect_error', (err) => {
@@ -125,6 +132,7 @@ export default function useSocket(options: UseSocketOptions = {}) {
       socketInstance.on('disconnect', (reason) => {
         console.warn('Socket disconnected:', reason);
         setConnectionState(SocketConnectionState.DISCONNECTED);
+        stopHeartbeat();
         handleReconnect();
       });
 
@@ -132,6 +140,13 @@ export default function useSocket(options: UseSocketOptions = {}) {
         console.error('Socket error:', err);
         setError(typeof err === 'string' ? new Error(err) : err);
         setConnectionState(SocketConnectionState.ERROR);
+      });
+
+      // Escuchar heartbeat del servidor
+      socketInstance.on('heartbeat', (data: { timestamp: number }) => {
+        // Responder al heartbeat para que el servidor mida latencia
+        socketInstance.emit('heartbeat', data.timestamp);
+        lastHeartbeatTime.current = Date.now();
       });
 
       setSocket(socketInstance);
@@ -145,6 +160,36 @@ export default function useSocket(options: UseSocketOptions = {}) {
     }
   }, [user, url]);
 
+  // Iniciar heartbeat para mantener conexión activa
+  const startHeartbeat = useCallback((socketInstance: Socket) => {
+    if (heartbeatTimer.current) {
+      clearInterval(heartbeatTimer.current);
+    }
+    
+    heartbeatTimer.current = setInterval(() => {
+      if (!socketInstance || !socketInstance.connected) {
+        return;
+      }
+      
+      const startTime = Date.now();
+      socketInstance.emit('heartbeat', startTime, (serverTime: number) => {
+        const roundTripTime = Date.now() - startTime;
+        setLatency(roundTripTime);
+      });
+      
+    }, heartbeatInterval);
+    
+    console.log(`Heartbeat started with interval of ${heartbeatInterval}ms`);
+  }, [heartbeatInterval]);
+  
+  // Detener heartbeat
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatTimer.current) {
+      clearInterval(heartbeatTimer.current);
+      heartbeatTimer.current = null;
+    }
+  }, []);
+
   // Manejar reconexión automática
   const handleReconnect = useCallback(() => {
     if (reconnectCount.current >= reconnectionAttempts) {
@@ -157,6 +202,8 @@ export default function useSocket(options: UseSocketOptions = {}) {
       clearTimeout(reconnectTimer.current);
     }
 
+    setConnectionState(SocketConnectionState.RECONNECTING);
+    
     reconnectTimer.current = setTimeout(() => {
       reconnectCount.current += 1;
       console.log(`Attempting reconnect: ${reconnectCount.current}/${reconnectionAttempts}`);
@@ -176,9 +223,10 @@ export default function useSocket(options: UseSocketOptions = {}) {
         if (reconnectTimer.current) {
           clearTimeout(reconnectTimer.current);
         }
+        stopHeartbeat();
       };
     }
-  }, [autoConnect, connect]);
+  }, [autoConnect, connect, stopHeartbeat]);
 
   // Función segura para emitir eventos
   const emit = useCallback(
@@ -223,8 +271,9 @@ export default function useSocket(options: UseSocketOptions = {}) {
       clearTimeout(reconnectTimer.current);
       reconnectTimer.current = null;
     }
+    stopHeartbeat();
     setConnectionState(SocketConnectionState.DISCONNECTED);
-  }, [socket]);
+  }, [socket, stopHeartbeat]);
 
   // Función de subscripción tipada
   const on = useCallback(
@@ -239,10 +288,32 @@ export default function useSocket(options: UseSocketOptions = {}) {
     [socket]
   );
 
+  // Solicitar sincronización de estado
+  const requestSync = useCallback(
+    (roomId: string, callback?: Function) => {
+      const lastSync = localStorage.getItem(`lastSync_${roomId}`);
+      const lastTimestamp = lastSync ? parseInt(lastSync, 10) : 0;
+
+      return emit('sync:request', { roomId, lastTimestamp }, (response: any) => {
+        if (response?.success) {
+          localStorage.setItem(`lastSync_${roomId}`, Date.now().toString());
+        }
+        callback?.(response);
+      });
+    },
+    [emit]
+  );
+
   // Función para unirse a una sala
   const joinRoom = useCallback(
     (roomId: string, accessCode: string = '', callback?: Function) => {
-      return emit('room:join', { roomId, userId: user?.userId, accessCode }, callback);
+      return emit('room:join', { roomId, userId: user?.userId, accessCode }, (error: any, data: any) => {
+        // Si la respuesta incluye estado del juego, cachear timestamp
+        if (!error && data?.gameState) {
+          localStorage.setItem(`lastSync_${roomId}`, Date.now().toString());
+        }
+        callback?.(error, data);
+      });
     },
     [emit, user]
   );
@@ -250,17 +321,17 @@ export default function useSocket(options: UseSocketOptions = {}) {
   // Función para abandonar una sala
   const leaveRoom = useCallback(
     (roomId: string, callback?: Function) => {
-      return emit('room:leave', { roomId, userId: user?.userId }, callback);
+      return emit('room:leave', { roomId }, callback);
     },
-    [emit, user]
+    [emit]
   );
 
-  // Función para enviar un mensaje al chat
+  // Función para enviar mensaje de chat
   const sendChatMessage = useCallback(
     (roomId: string, text: string, callback?: Function) => {
-      return emit('chat:send', { roomId, userId: user?.userId, text }, callback);
+      return emit('chat:send', { roomId, text }, callback);
     },
-    [emit, user]
+    [emit]
   );
 
   // Función para cambiar estado de listo
@@ -283,7 +354,9 @@ export default function useSocket(options: UseSocketOptions = {}) {
     socket,
     connectionState,
     error,
+    latency,
     isConnected: connectionState === SocketConnectionState.CONNECTED,
+    isReconnecting: connectionState === SocketConnectionState.RECONNECTING,
     connect,
     disconnect,
     emit,
@@ -293,5 +366,6 @@ export default function useSocket(options: UseSocketOptions = {}) {
     sendChatMessage,
     setReady,
     startGame,
+    requestSync,
   };
 } 

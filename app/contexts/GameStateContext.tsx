@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useReducer, useEffect, useState } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useState, useCallback } from 'react';
 import useSocket, { SocketConnectionState } from '../hooks/useSocket';
 import { useAuth } from '../auth/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -76,6 +76,7 @@ export interface GameStateData {
   currentRoundIaEvaluation?: {
     isCorrect: boolean;
     justification: string;
+    error?: string;
   };
   startedAt?: Date;
   lastUpdated: Date;
@@ -101,7 +102,9 @@ type GameStateAction =
   | { type: 'SUBMIT_DRAWING'; imageData: string }
   | { type: 'SUBMIT_GUESS'; guess: string }
   | { type: 'SET_ERROR'; error: { message: string; code: string } }
-  | { type: 'UPDATE_TIME_REMAINING'; timeRemaining: number };
+  | { type: 'UPDATE_TIME_REMAINING'; timeRemaining: number }
+  | { type: 'SHOW_TOAST'; payload: GameStateData['toastNotification'] }
+  | { type: 'HIDE_TOAST' };
 
 // Estado inicial
 const initialState: GameStateData = {
@@ -128,11 +131,20 @@ function gameStateReducer(state: GameStateData, action: GameStateAction): GameSt
     case 'SET_STATE':
       return { ...state, ...action.payload };
     case 'RESET_STATE':
-      return { ...initialState, roomId: state.roomId };
+      return { ...initialState, roomId: state.roomId, toastNotification: null };
     case 'SET_ERROR':
-      return { ...state, currentState: GameState.ERROR, error: action.error };
+      return { 
+        ...state, 
+        currentState: GameState.ERROR, 
+        error: action.error,
+        toastNotification: { id: Date.now().toString(), type: 'error', message: action.error.message, duration: 5000 }
+      };
     case 'UPDATE_TIME_REMAINING':
       return { ...state, timeRemaining: action.timeRemaining };
+    case 'SHOW_TOAST':
+      return { ...state, toastNotification: action.payload };
+    case 'HIDE_TOAST':
+      return { ...state, toastNotification: null };
     default:
       return state;
   }
@@ -145,8 +157,9 @@ interface GameStateContextType {
   isLoading: boolean;
   triggerEvent: (event: GameEvent, payload?: any) => void;
   selectWord: (word: string) => void;
-  submitDrawing: (imageData: string) => void;
+  submitDrawing: (imageData: string) => Promise<any>;
   submitGuess: (guess: string) => void;
+  showToast: (toast: NonNullable<GameStateData['toastNotification']>) => void;
   isHost: boolean;
   isCurrentDrawer: boolean;
 }
@@ -212,12 +225,24 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
       dispatch({ type: 'SET_ERROR', error: data });
     });
 
+    // Escuchar notificaciones genéricas del sistema/juego desde el servidor
+    const unsubscribeNotification = on('user:notification', (data: any) => {
+        dispatch({ type: 'SHOW_TOAST', payload: {
+            id: Date.now().toString(),
+            type: data.type || 'info',
+            message: data.message,
+            duration: data.duration || 3000
+        } });
+    });
+
     // Limpiar listeners al desmontar
     return () => {
       unsubscribe();
       unsubscribeTimer();
       unsubscribeError();
+      unsubscribeNotification();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, connectionState, user, roomId, emit, on]);
 
   // Función para enviar eventos al backend
@@ -239,12 +264,61 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
     triggerEvent(GameEvent.SELECT_WORD, { word });
   };
 
-  const submitDrawing = (imageData: string) => {
-    triggerEvent(GameEvent.SUBMIT_DRAWING, { imageData });
+  const showToast = useCallback((toastConfig: NonNullable<GameStateData['toastNotification']>) => {
+    dispatch({ type: 'SHOW_TOAST', payload: toastConfig });
+    if (toastConfig.duration) {
+      setTimeout(() => {
+        // Solo ocultar si este toast sigue siendo el activo
+        // Esto evita que un timeout antiguo oculte un toast nuevo
+        // Para un sistema más robusto, se necesitaría comparar IDs o tener una cola de toasts
+        dispatch({ type: 'HIDE_TOAST' }); 
+      }, toastConfig.duration);
+    }
+  }, [dispatch]);
+
+  const originalSubmitDrawing = async (imageData: string) => {
+    if (!socket || connectionState !== SocketConnectionState.CONNECTED) {
+        const errMsg = 'No hay conexión disponible para enviar el dibujo.';
+        showToast({id: Date.now().toString(), type: 'error', message: errMsg, duration: 5000});
+        throw new Error(errMsg);
+    }
+    try {
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          const errMsg = 'Tiempo de espera agotado al enviar el dibujo';
+          showToast({id: Date.now().toString(), type: 'error', message: errMsg, duration: 5000});
+          reject(new Error(errMsg));
+        }, 15000);
+        emit('game:event', { roomId, event: GameEvent.SUBMIT_DRAWING, payload: { imageData } }, (error: any, response: any) => {
+          clearTimeout(timeout);
+          if (error) {
+            showToast({id: Date.now().toString(), type: 'error', message: `Error al enviar dibujo: ${error.message || error}`, duration: 5000});
+            reject(error);
+          } else {
+            showToast({id: Date.now().toString(), type: 'success', message: '¡Dibujo enviado con éxito!', duration: 3000});
+            resolve(response);
+          }
+        });
+      });
+    } catch (error: any) {
+      showToast({id: Date.now().toString(), type: 'error', message: `Error (catch principal): ${error.message || error}`, duration: 5000});
+      try {
+        const response = await fetch(`/api/game-rooms/${roomId}/drawings`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ imageData })});
+        if (!response.ok) throw new Error('Error en fallback API REST');
+        showToast({id: Date.now().toString(), type: 'success', message: 'Dibujo enviado (fallback API)!', duration: 3000});
+        return await response.json();
+      } catch (fallbackError: any) {
+        showToast({id: Date.now().toString(), type: 'error', message: `Error (fallback): ${fallbackError.message || fallbackError}`, duration: 5000});
+        throw error;
+      }
+    }
   };
 
-  const submitGuess = (guess: string) => {
+  const originalSubmitGuess = (guess: string) => {
     triggerEvent(GameEvent.SUBMIT_GUESS, { guess });
+    // Podríamos añadir un callback al triggerEvent o un evento específico para confirmar la adivinanza
+    // y luego mostrar un toast. Por ahora, el feedback es local en GuessingScreen.
+    // Opcional: showToast({id: Date.now().toString(), type: 'info', message: `Adivinanza "${guess}" enviada.`, duration: 2000});
   };
 
   // Valor del contexto
@@ -254,8 +328,9 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
     isLoading,
     triggerEvent,
     selectWord,
-    submitDrawing,
-    submitGuess,
+    submitDrawing: originalSubmitDrawing,
+    submitGuess: originalSubmitGuess,
+    showToast,
     isHost,
     isCurrentDrawer,
   };

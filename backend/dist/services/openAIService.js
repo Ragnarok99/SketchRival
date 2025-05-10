@@ -18,6 +18,7 @@ const crypto_1 = __importDefault(require("crypto")); // Importar crypto para has
 class OpenAIService {
     constructor() {
         this.evaluationCache = new Map(); // Inicializar caché
+        this.maxCacheSize = 1000; // Límite de tamaño para el caché en memoria
         if (!database_1.OPENAI_API_KEY) {
             console.warn('Advertencia: OPENAI_API_KEY no está configurada. El servicio de OpenAI no funcionará.');
             // Podrías optar por lanzar un error aquí si la API key es estrictamente necesaria para el funcionamiento básico
@@ -118,7 +119,7 @@ class OpenAIService {
                         type: 'image_url',
                         image_url: {
                             url: imageDataUrl,
-                            detail: 'high', // TODO: Considerar hacer configurable ('low' o 'high') o probar 'low' para optimizar costos.
+                            detail: 'low', // Cambiado de 'high' a 'low' para prueba de optimización de costos
                         },
                     },
                 ],
@@ -165,7 +166,7 @@ class OpenAIService {
                 const completion = yield this.openai.chat.completions.create({
                     model: 'gpt-4o', // O el modelo específico de visión que se decida usar
                     messages: messages,
-                    max_tokens: 100, // Ajustar según la longitud esperada de la justificación. 50-70 podrían ser suficientes.
+                    max_tokens: 70, // Reducido de 100 a 70 para optimizar costos
                     temperature: 0.3, // Un valor bajo para respuestas más deterministas/factuales
                 });
                 // Loguear uso de tokens si está disponible
@@ -183,7 +184,11 @@ class OpenAIService {
                 const parsedResult = this.parseEvaluationResponse(rawResponse);
                 // Guardar en caché antes de retornar
                 if (!parsedResult.error) {
-                    // Solo cachear resultados válidos
+                    // Controlar tamaño del caché
+                    if (this.evaluationCache.size >= this.maxCacheSize) {
+                        console.warn(`Cache limit (${this.maxCacheSize}) reached. Clearing cache.`);
+                        this.evaluationCache.clear();
+                    }
                     this.evaluationCache.set(cacheKey, parsedResult);
                 }
                 return parsedResult;
@@ -262,6 +267,11 @@ class OpenAIService {
         if (justification.length > 200) {
             justification = justification.substring(0, 197) + '...';
         }
+        // Sanitizar la justificación: reemplazar múltiples espacios/saltos de línea
+        justification = justification
+            .replace(/\s\s+/g, ' ')
+            .replace(/(\r\n|\n|\r){2,}/g, '\n')
+            .trim();
         return { isCorrect, justification, error: errorFromParsing };
     }
 }
