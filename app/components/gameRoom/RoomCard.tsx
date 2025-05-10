@@ -25,7 +25,7 @@ interface GameRoom {
   hostName: string;
   type: 'public' | 'private';
   status: 'waiting' | 'playing' | 'finished' | 'closed';
-  players: number;
+  players: any;
   configuration: GameRoomConfig;
   accessCode?: string;
   createdAt: string;
@@ -157,7 +157,7 @@ export default function RoomCard({ room, onJoin, isPrivate = false }: RoomCardPr
           <div className="flex justify-between">
             <span className="text-sm text-gray-600">Jugadores:</span>
             <span className="text-sm font-medium">
-              {room.players} / {room.configuration.maxPlayers}
+              {Array.isArray(room.players) ? room.players.length : room.players} / {room.configuration.maxPlayers}
             </span>
           </div>
           

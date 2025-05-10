@@ -22,7 +22,22 @@ interface GameRoom {
   hostName: string;
   type: 'public' | 'private';
   status: 'waiting' | 'playing' | 'finished' | 'closed';
-  players: number;
+  players: any; // Para manejar tanto arrays como números
+  configuration: GameRoomConfig;
+  accessCode?: string;
+  createdAt: string;
+}
+
+// Interfaz para formato de la API
+interface APIGameRoom {
+  _id?: string;
+  id?: string;
+  name: string;
+  hostId: string;
+  hostName?: string;
+  type: 'public' | 'private';
+  status: 'waiting' | 'playing' | 'finished' | 'closed';
+  players: any;
   configuration: GameRoomConfig;
   accessCode?: string;
   createdAt: string;
@@ -74,7 +89,22 @@ export default function GameRoomList({ type, onlyMine = false, searchQuery = '',
         }
 
         const data = await response.json();
-        setRooms(data.rooms || []);
+        
+        // Mapear y normalizar los datos recibidos
+        const normalizedRooms: GameRoom[] = (data.rooms || []).map((room: APIGameRoom) => ({
+          id: room.id || room._id || '', // Usar id o _id según lo que venga de la API
+          name: room.name,
+          hostId: room.hostId,
+          hostName: room.hostName || 'Anfitrión', // Valor por defecto
+          type: room.type,
+          status: room.status,
+          players: room.players,
+          configuration: room.configuration,
+          accessCode: room.accessCode,
+          createdAt: room.createdAt
+        }));
+        
+        setRooms(normalizedRooms);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error desconocido');
