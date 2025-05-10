@@ -19,6 +19,7 @@ interface AuthContextType {
   register: (username: string, email: string, password: string) => Promise<boolean>;
   loading: boolean;
   error: string | null;
+  getAuthToken: () => string | null;
 }
 
 // Crear el contexto
@@ -32,20 +33,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Comprobar autenticación existente al cargar
   useEffect(() => {
-    // Simular carga de datos de usuario (en una implementación real, esto verificaría un token almacenado)
-    setTimeout(() => {
-      // Usuario mock de prueba
-      const mockUser: AuthenticatedUser = {
-        userId: '12345',
-        username: 'usuario_demo',
-        email: 'usuario@ejemplo.com',
-        role: 'user',
-      };
-      
-      setUser(mockUser);
-      setLoading(false);
-    }, 500);
+    const checkAuth = async () => {
+      try {
+        // Intentar recuperar el token del localStorage
+        const token = localStorage.getItem('accessToken');
+        
+        if (!token) {
+          console.log('No token found in localStorage');
+          setLoading(false);
+          return;
+        }
+        
+        console.log('Token found, verifying with backend...');
+        
+        // Verificar el token con el backend
+        const response = await fetch('/api/auth/me', {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        
+        if (response.ok) {
+          const userData = await response.json();
+          console.log('User verified:', userData);
+          setUser(userData);
+        } else {
+          console.warn('Token verification failed. Status:', response.status);
+          // Token no válido o expirado, limpiamos localStorage
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+        }
+      } catch (err) {
+        console.error('Error al verificar autenticación:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    checkAuth();
   }, []);
+
+  // Obtener token de autenticación
+  const getAuthToken = (): string | null => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('accessToken');
+    }
+    return null;
+  };
 
   // Iniciar sesión
   const login = async (email: string, password: string): Promise<boolean> => {
@@ -53,20 +87,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     
     try {
-      // Simular llamada a API (en implementación real, esto haría una petición al backend)
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('Attempting login with:', { email });
       
-      // Usuario mock para pruebas
-      setUser({
-        userId: '12345',
-        username: 'usuario_demo',
-        email,
-        role: 'user',
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
       });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        console.error('Login failed:', data);
+        throw new Error(data.message || 'Credenciales inválidas');
+      }
+      
+      console.log('Login successful, tokens received');
+      
+      // Guardar tokens en localStorage
+      localStorage.setItem('accessToken', data.accessToken);
+      if (data.refreshToken) {
+        localStorage.setItem('refreshToken', data.refreshToken);
+      }
+      
+      // Almacenar información del usuario
+      setUser(data.user);
       
       return true;
     } catch (err) {
-      setError('Error al iniciar sesión');
+      const errorMessage = err instanceof Error ? err.message : 'Error al iniciar sesión';
+      console.error('Login error:', errorMessage);
+      setError(errorMessage);
       return false;
     } finally {
       setLoading(false);
@@ -75,7 +128,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Cerrar sesión
   const logout = () => {
+    // Eliminar tokens del localStorage
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
     setUser(undefined);
+    console.log('User logged out');
   };
 
   // Registrar nuevo usuario
@@ -84,20 +141,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     
     try {
-      // Simular llamada a API (en implementación real, esto haría una petición al backend)
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('Attempting registration with:', { username, email });
       
-      // Crear usuario mock
-      setUser({
-        userId: '67890',
-        username,
-        email,
-        role: 'user',
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, email, password }),
       });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        console.error('Registration failed:', data);
+        throw new Error(data.message || 'Error al registrar el usuario');
+      }
+      
+      console.log('Registration successful, tokens received');
+      
+      // Opcionalmente iniciar sesión automáticamente
+      localStorage.setItem('accessToken', data.accessToken);
+      if (data.refreshToken) {
+        localStorage.setItem('refreshToken', data.refreshToken);
+      }
+      
+      setUser(data.user);
       
       return true;
     } catch (err) {
-      setError('Error al registrar usuario');
+      const errorMessage = err instanceof Error ? err.message : 'Error al registrar usuario';
+      console.error('Registration error:', errorMessage);
+      setError(errorMessage);
       return false;
     } finally {
       setLoading(false);
@@ -113,6 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     register,
     loading,
     error,
+    getAuthToken,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

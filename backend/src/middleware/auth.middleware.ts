@@ -16,7 +16,8 @@ export interface IRequestWithUser extends Request {
   user?: AuthenticatedUser;
 }
 
-export const protect = async (req: IRequestWithUser, res: Response, next: NextFunction) => {
+// En vez de exportar 'protect' directamente, exportamos 'protectRoute' que es compatible con Express
+export const protectRoute = async (req: Request, res: Response, next: NextFunction) => {
   let token;
 
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
@@ -32,7 +33,7 @@ export const protect = async (req: IRequestWithUser, res: Response, next: NextFu
       }
 
       // Extender el objeto decoded para incluir información sobre roles
-      req.user = {
+      (req as IRequestWithUser).user = {
         ...decoded,
         isAdmin: user.roles.includes('admin'), // Verificar si el usuario es administrador
       };
@@ -48,3 +49,6 @@ export const protect = async (req: IRequestWithUser, res: Response, next: NextFu
     return res.status(401).send({ message: 'Not authorized, no token' });
   }
 };
+
+// Alias para mantener compatibilidad con código existente
+export const protect = protectRoute;

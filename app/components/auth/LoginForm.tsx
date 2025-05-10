@@ -2,14 +2,16 @@
 
 import { useState, FormEvent } from "react";
 import Link from "next/link";
-// import { useRouter } from 'next/navigation'; // Para redirección
+import { useRouter } from 'next/navigation';
+import { useAuth } from "../../auth/AuthContext";
 
 export default function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  // const router = useRouter();
+  const router = useRouter();
+  const { login, loading, error: authError } = useAuth();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -17,32 +19,14 @@ export default function LoginForm() {
     setMessage("");
 
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || "Invalid credentials");
+      const success = await login(email, password);
+      
+      if (success) {
+        setMessage("Inicio de sesión exitoso. Redirigiendo...");
+        router.push('/gameRoom'); // Redirigir a la página de salas de juego
       }
-
-      setMessage(data.message);
-      // Aquí guardarías el token (ej. en localStorage o context) y redirigirías
-      // localStorage.setItem('accessToken', data.accessToken);
-      // localStorage.setItem('refreshToken', data.refreshToken);
-      // router.push('/dashboard'); // Ejemplo de redirección
-      console.log("Login successful", data);
     } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError("An unknown error occurred");
-      }
+      setError(err instanceof Error ? err.message : "Error al iniciar sesión");
     }
   };
 
@@ -85,11 +69,20 @@ export default function LoginForm() {
       <button
         type="submit"
         className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+        disabled={loading}
       >
-        Login
+        {loading ? (
+          <span className="flex items-center justify-center">
+            <span className="animate-spin h-4 w-4 border-t-2 border-b-2 border-white rounded-full mr-2"></span>
+            Cargando...
+          </span>
+        ) : (
+          "Login"
+        )}
       </button>
+      
       {message && <p className="text-blue-500">{message}</p>}
-      {error && <p className="text-red-500">{error}</p>}
+      {(error || authError) && <p className="text-red-500">{error || authError}</p>}
 
       <div className="mt-4">
         <p>Login with Google:</p>

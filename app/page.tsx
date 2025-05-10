@@ -7,7 +7,7 @@ export default function Home() {
       <header className="w-full max-w-4xl">
         <h1 className="text-3xl font-bold text-center mb-2">SketchRival</h1>
         <p className="text-center text-gray-600">
-          ¡Dibuja y compite contra la IA!
+          ¡Dibuja y compite contra la IA o en salas multijugador!
         </p>
       </header>
 
@@ -18,6 +18,20 @@ export default function Home() {
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Link
+              href="/gameRoom"
+              className="bg-indigo-500 text-white py-3 px-4 rounded hover:bg-indigo-600 text-center"
+            >
+              Salas de Juego
+            </Link>
+
+            <Link
+              href="/gameRoom/create"
+              className="bg-pink-500 text-white py-3 px-4 rounded hover:bg-pink-600 text-center"
+            >
+              Crear Sala
+            </Link>
+
             <Link
               href="/drawing"
               className="bg-blue-500 text-white py-3 px-4 rounded hover:bg-blue-600 text-center"
@@ -33,17 +47,17 @@ export default function Home() {
             </Link>
 
             <Link
-              href="/auth/forgot-password"
-              className="bg-yellow-500 text-white py-3 px-4 rounded hover:bg-yellow-600 text-center"
-            >
-              Recuperar Contraseña
-            </Link>
-
-            <Link
               href="/auth/register"
               className="bg-purple-500 text-white py-3 px-4 rounded hover:bg-purple-600 text-center"
             >
               Registrarse
+            </Link>
+
+            <Link
+              href="/auth/forgot-password"
+              className="bg-yellow-500 text-white py-3 px-4 rounded hover:bg-yellow-600 text-center"
+            >
+              Recuperar Contraseña
             </Link>
           </div>
         </div>

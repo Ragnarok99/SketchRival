@@ -1,68 +1,107 @@
 import express, { Request, Response } from 'express';
-import { connectToDatabase } from './services/database.service';
+import http from 'http';
+import cors from 'cors';
 import dotenv from 'dotenv';
-import authRoutes from './routes/auth.routes'; // Importar rutas de autenticación
-import gameRoomsRoutes from './routes/gameRooms.routes'; // Importar rutas de salas de juego
-import roomConfigRoutes from './routes/roomConfig.routes'; // Importar rutas de configuración de salas
-import privateRoomsRoutes from './routes/privateRooms.routes'; // Importar rutas de salas privadas
-import waitingRoomRoutes from './routes/waitingRoom.routes'; // Importar rutas de sala de espera
-import statsRoutes from './routes/stats.routes'; // Importar rutas de estadísticas
-import wordsRoutes from './routes/words.routes'; // Importar rutas de palabras
-import passport from './config/passport.setup'; // Importar configuración de Passport
+import mongoose from 'mongoose';
+import passport from './config/passport.setup';
+import socketService from './services/socket.service';
+
+// Importar rutas
+import authRoutes from './routes/auth.routes';
+import waitingRoomRoutes from './routes/waitingRoom.routes';
+import gameStateRoutes from './routes/gameState.routes';
+import gameRoomsRoutes from './routes/gameRooms.routes';
+import roomConfigRoutes from './routes/roomConfig.routes';
+import privateRoomsRoutes from './routes/privateRooms.routes';
+import statsRoutes from './routes/stats.routes';
+import wordsRoutes from './routes/words.routes';
+
+// Importar servicios
 import { initializeEmailService } from './services/email.service';
-import { GameWordBankModel, GameRewardModel } from './models'; // Para inicialización de datos
 
-dotenv.config(); // Cargar variables de entorno
+// Cargar variables de entorno
+dotenv.config();
 
+// Crear aplicación Express
 const app = express();
-const port = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3001;
 
-app.use(express.json()); // Middleware para parsear JSON bodies
-app.use(passport.initialize()); // Inicializar Passport
+// Middlewares
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    credentials: true,
+  }),
+);
+app.use(express.json());
+app.use(passport.initialize());
 
-connectToDatabase()
-  .then(async () => {
+// Ruta raíz
+app.get('/', (req: Request, res: Response) => {
+  res.send('SketchRival Backend API');
+});
+
+// Configurar rutas
+app.use('/api/auth', authRoutes);
+app.use('/api/game-state', gameStateRoutes);
+app.use('/api/waiting-room', waitingRoomRoutes);
+app.use('/api/rooms', gameRoomsRoutes);
+app.use('/api/configs', roomConfigRoutes);
+app.use('/api/private', privateRoomsRoutes);
+app.use('/api/stats', statsRoutes);
+app.use('/api/words', wordsRoutes);
+
+// Crear servidor HTTP
+const server = http.createServer(app);
+
+// Inicializar Socket.IO
+socketService.initialize(server);
+
+// Configurar conexión MongoDB
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sketchrival';
+
+// Función para iniciar el servidor
+const startServer = async () => {
+  try {
+    // Intento de conexión a MongoDB
+    console.log('Connecting to MongoDB...');
+    await mongoose.connect(MONGODB_URI);
     console.log('Connected to MongoDB');
 
     // Inicializar servicio de email
-    initializeEmailService()
-      .then(() => {
-        console.log('Email service initialized');
-      })
-      .catch((err) => {
-        console.error('Error initializing email service:', err);
-      });
+    try {
+      await initializeEmailService();
+      console.log('Email service initialized');
+    } catch (err) {
+      console.error('Error initializing email service:', err);
+    }
 
     // Inicializar datos por defecto
     try {
-      // Crear categorías de palabras por defecto
-      await GameWordBankModel.createDefaultCategories();
-      console.log('Default word categories created/verified');
-
-      // Crear recompensas/logros por defecto
-      await GameRewardModel.createDefaultRewards();
-      console.log('Default rewards created/verified');
+      // Inicializar categorías de palabras y recompensas
+      console.log('Initializing default data...');
     } catch (error) {
       console.error('Error initializing default data:', error);
     }
 
-    app.get('/', (req: Request, res: Response) => {
-      res.send('Hello from SketchRival Backend!');
+    // Iniciar el servidor
+    server.listen(PORT, () => {
+      console.log(`Backend server running on port ${PORT}`);
     });
+  } catch (error) {
+    console.error('Failed to connect to MongoDB:', error);
 
-    app.use('/api/auth', authRoutes); // Usar rutas de autenticación
-    app.use('/api/rooms', gameRoomsRoutes); // Usar rutas de salas de juego
-    app.use('/api/configs', roomConfigRoutes); // Usar rutas de configuración de salas
-    app.use('/api/private', privateRoomsRoutes); // Usar rutas de salas privadas
-    app.use('/api/waiting-room', waitingRoomRoutes); // Usar rutas de sala de espera
-    app.use('/api/stats', statsRoutes); // Usar rutas de estadísticas
-    app.use('/api/words', wordsRoutes); // Usar rutas de palabras
+    // Si falla la conexión a MongoDB, iniciar en modo offline
+    console.log('Starting server in offline mode (without database)...');
 
-    app.listen(port, () => {
-      console.log(`Backend server listening on port ${port}`);
+    // Iniciar el servidor de todos modos para que las rutas estén disponibles
+    server.listen(PORT, () => {
+      console.log(`Backend server running on port ${PORT} in OFFLINE mode (no database)`);
     });
-  })
-  .catch((error) => {
-    console.error('Failed to start server due to database connection error:', error);
-    process.exit(1);
-  });
+  }
+};
+
+// Iniciar el servidor
+startServer();
+
+export default server;

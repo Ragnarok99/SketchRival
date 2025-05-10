@@ -1,13 +1,9 @@
-import { UserModel, IUser, IUserResponse } from "../models/User.model";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-import crypto from "crypto"; // Para generar tokens de reseteo
-import {
-  JWT_SECRET,
-  ACCESS_TOKEN_EXPIRES_IN,
-  REFRESH_TOKEN_EXPIRES_IN,
-} from "../config/database";
-import { sendPasswordResetEmail } from "./email.service";
+import { UserModel, IUser, IUserResponse } from '../models/User.model';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto'; // Para generar tokens de reseteo
+import { JWT_SECRET, ACCESS_TOKEN_EXPIRES_IN, REFRESH_TOKEN_EXPIRES_IN } from '../config/database';
+import { sendPasswordResetEmail } from './email.service';
 
 export interface IAuthResponse {
   user: IUserResponse;
@@ -21,9 +17,7 @@ interface TokenPayload {
   username?: string;
 }
 
-const generateTokens = (
-  user: IUser,
-): { accessToken: string; refreshToken: string } => {
+const generateTokens = (user: IUser): { accessToken: string; refreshToken: string } => {
   // Convertir el ID a string de manera segura
   const userId = String(user._id);
 
@@ -41,11 +35,9 @@ const generateTokens = (
   return { accessToken, refreshToken };
 };
 
-export const registerUser = async (
-  userData: Partial<IUser>,
-): Promise<IAuthResponse> => {
+export const registerUser = async (userData: Partial<IUser>): Promise<IAuthResponse> => {
   if (!userData.passwordHash) {
-    throw new Error("Password is required for local registration");
+    throw new Error('Password is required for local registration');
   }
   // El pre-save hook en User.model.ts se encargará del hashing
   const user = new UserModel(userData);
@@ -63,13 +55,8 @@ export const registerUser = async (
   };
 };
 
-export const loginUser = async (
-  email: string,
-  passwordCandidate: string,
-): Promise<IAuthResponse | null> => {
-  const user = await UserModel.findOne({ email, authProvider: "local" }).select(
-    "+passwordHash",
-  );
+export const loginUser = async (email: string, passwordCandidate: string): Promise<IAuthResponse | null> => {
+  const user = await UserModel.findOne({ email, authProvider: 'local' }).select('+passwordHash');
   if (!user || !user.passwordHash) {
     return null; // Usuario no encontrado o no tiene contraseña local
   }
@@ -93,16 +80,13 @@ export const loginUser = async (
 };
 
 export const forgotPassword = async (email: string): Promise<string | null> => {
-  const user = await UserModel.findOne({ email, authProvider: "local" });
+  const user = await UserModel.findOne({ email, authProvider: 'local' });
   if (!user) {
     return null; // No revelar si el usuario existe o no por seguridad
   }
 
-  const resetToken = crypto.randomBytes(32).toString("hex");
-  user.passwordResetToken = crypto
-    .createHash("sha256")
-    .update(resetToken)
-    .digest("hex");
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
 
   // Token expira en 10 minutos (configurable)
   user.passwordResetExpires = new Date(Date.now() + 10 * 60 * 1000);
@@ -110,11 +94,7 @@ export const forgotPassword = async (email: string): Promise<string | null> => {
   await user.save();
 
   // Enviar el email de recuperación
-  const emailSent = await sendPasswordResetEmail(
-    email,
-    resetToken,
-    user.username,
-  );
+  const emailSent = await sendPasswordResetEmail(email, resetToken, user.username);
 
   if (!emailSent) {
     console.error(`Error al enviar email de recuperación a ${email}`);
@@ -123,7 +103,7 @@ export const forgotPassword = async (email: string): Promise<string | null> => {
   }
 
   // Solo en desarrollo, imprimir el token para pruebas
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== 'production') {
     console.log(`Password reset token for ${email}: ${resetToken}`);
   }
 
@@ -131,14 +111,8 @@ export const forgotPassword = async (email: string): Promise<string | null> => {
   return resetToken;
 };
 
-export const resetPassword = async (
-  resetToken: string,
-  newPassword: string,
-): Promise<boolean> => {
-  const hashedToken = crypto
-    .createHash("sha256")
-    .update(resetToken)
-    .digest("hex");
+export const resetPassword = async (resetToken: string, newPassword: string): Promise<boolean> => {
+  const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
 
   const user = await UserModel.findOne({
     passwordResetToken: hashedToken,
@@ -159,9 +133,7 @@ export const resetPassword = async (
 };
 
 // Implementación de la función refreshToken
-export const refreshToken = async (
-  token: string,
-): Promise<{ accessToken: string } | null> => {
+export const refreshToken = async (token: string): Promise<{ accessToken: string } | null> => {
   try {
     // Verificar que el token de refresco sea válido
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
@@ -188,7 +160,7 @@ export const refreshToken = async (
     return { accessToken };
   } catch (error) {
     // Si hay un error al verificar el token (expirado, inválido, etc.)
-    console.error("Error al refrescar el token:", error);
+    console.error('Error al refrescar el token:', error);
     return null;
   }
 };

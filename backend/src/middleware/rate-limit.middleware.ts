@@ -19,6 +19,43 @@ export const authLimiter = rateLimit({
   },
 });
 
+// Limitadores específicos para operaciones de autenticación
+export const loginLimiter = rateLimit({
+  ...baseConfig,
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5, // Limitar a 5 intentos de login cada 15 minutos por IP
+  message: {
+    message: 'Demasiados intentos de inicio de sesión, por favor intenta más tarde.',
+  },
+});
+
+export const registerLimiter = rateLimit({
+  ...baseConfig,
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 3, // Limitar a 3 registros por hora por IP
+  message: {
+    message: 'Demasiados intentos de registro, por favor intenta más tarde.',
+  },
+});
+
+export const forgotPasswordLimiter = rateLimit({
+  ...baseConfig,
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 3, // Limitar a 3 solicitudes de recuperación de contraseña por hora por IP
+  message: {
+    message: 'Demasiadas solicitudes de recuperación de contraseña, por favor intenta más tarde.',
+  },
+});
+
+export const resetPasswordLimiter = rateLimit({
+  ...baseConfig,
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 3, // Limitar a 3 reseteos de contraseña por hora por IP
+  message: {
+    message: 'Demasiados intentos de reseteo de contraseña, por favor intenta más tarde.',
+  },
+});
+
 // Limitar solicitudes para creación de salas
 export const roomsLimiter = rateLimit({
   ...baseConfig,

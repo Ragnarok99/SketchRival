@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node dist/index.js",
     "build": "tsc",
-    "dev": "tsc -w & nodemon dist/index.js",
+    "build:force": "tsc --skipLibCheck",
+    "dev": "tsc -w --skipLibCheck & nodemon dist/index.js",
+    "dev:ts-node": "ts-node --transpile-only src/index.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write .",
     "test": "jest"
@@ -16,6 +18,7 @@
   "license": "ISC",
   "dependencies": {
     "@types/socket.io": "^3.0.2",
+    "bcrypt": "^5.1.1",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.0",
@@ -46,6 +49,7 @@
     "nodemon": "^3.1.10",
     "prettier": "^3.5.3",
     "ts-jest": "^29.3.2",
+    "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
   }
 }

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '../../auth/AuthContext'; // Suponiendo que hay un contexto de autenticación
+import { useAuth } from '../../auth/AuthContext';
+import { useApi } from '../../utils/api';
 
 // Definir tipos
 type RoomType = 'public' | 'private';
@@ -35,7 +36,8 @@ interface FormData {
 
 export default function CreateRoomPage() {
   const router = useRouter();
-  const { user, isAuthenticated } = useAuth(); // Suponiendo que hay un contexto de autenticación
+  const { isAuthenticated } = useAuth();
+  const { fetchWithAuth } = useApi();
   
   // Estado inicial del formulario
   const [formData, setFormData] = useState<FormData>({
@@ -76,7 +78,7 @@ export default function CreateRoomPage() {
   useEffect(() => {
     const fetchConfigurations = async () => {
       try {
-        const response = await fetch('/api/configs');
+        const response = await fetchWithAuth('/api/configs');
         if (!response.ok) {
           throw new Error('Error al cargar configuraciones');
         }
@@ -97,7 +99,7 @@ export default function CreateRoomPage() {
     };
     
     fetchConfigurations();
-  }, []);
+  }, [fetchWithAuth]);
   
   // Manejar cambios en los campos del formulario
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -157,7 +159,7 @@ export default function CreateRoomPage() {
   const loadPreset = async (presetName: string) => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/configs/presets/${presetName}`);
+      const response = await fetchWithAuth(`/api/configs/presets/${presetName}`);
       
       if (!response.ok) {
         throw new Error('Error al cargar el preset');
@@ -187,7 +189,7 @@ export default function CreateRoomPage() {
     
     try {
       setIsGeneratingCode(true);
-      const response = await fetch('/api/rooms/generate-code');
+      const response = await fetchWithAuth('/api/rooms/generate-code');
       
       if (!response.ok) {
         throw new Error('Error al generar código de acceso');
@@ -227,11 +229,8 @@ export default function CreateRoomPage() {
       setLoading(true);
       setError(null);
       
-      const response = await fetch('/api/rooms', {
+      const response = await fetchWithAuth('/api/rooms', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           name: formData.name,
           type: formData.type,
