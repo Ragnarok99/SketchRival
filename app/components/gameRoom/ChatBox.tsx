@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../auth/AuthContext';
-import { io, Socket } from 'socket.io-client';
+import useSocket, { SocketConnectionState } from '../../hooks/useSocket';
 
 interface Message {
   senderId: string;
@@ -113,37 +113,25 @@ export default function ChatBox({ roomId }: ChatBoxProps) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [socket, setSocket] = useState<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { emit, on, connectionState } = useSocket();
   
-  // Conectar al socket cuando el componente se monta
+  // Escuchar mensajes entrantes y unirse a la sala de chat
   useEffect(() => {
-    if (!user) return;
+    if (!user || !roomId || connectionState !== SocketConnectionState.CONNECTED) return;
     
-    let socketInstance: Socket | any;
+    // Suscribirse a eventos de chat
+    const unsubscribe = on('chat:message', (data: any) => {
+      const isSystem = data.senderId === 'system';
+      
+      setMessages(prev => [...prev, {
+        ...data,
+        isSystem
+      }]);
+    });
     
-    // Intenta conectar a un socket real o usar el mock simulado si está en desarrollo
-    try {
-      // Intentar conectar con un socket real
-      if (process.env.NEXT_PUBLIC_SOCKET_URL) {
-        socketInstance = io(process.env.NEXT_PUBLIC_SOCKET_URL, {
-          auth: {
-            userId: user.userId,
-            username: user.username
-          }
-        });
-      } else {
-        throw new Error('No socket URL available');
-      }
-    } catch (error) {
-      console.log('[MOCK] Usando socket simulado para el chat');
-      socketInstance = createMockChatSocket(user, roomId);
-    }
-    
-    setSocket(socketInstance);
-    
-    // Unirse a la sala
-    socketInstance.emit('room:join', {
+    // Enviar mensaje para unirse a la sala de chat
+    emit('room:join', {
       roomId,
       userId: user.userId,
       accessCode: '' // No necesario si ya estamos en la sala
@@ -153,22 +141,8 @@ export default function ChatBox({ roomId }: ChatBoxProps) {
       }
     });
     
-    // Escuchar mensajes entrantes
-    socketInstance.on('chat:message', (data: any) => {
-      const isSystem = data.senderId === 'system';
-      
-      setMessages(prev => [...prev, {
-        ...data,
-        isSystem
-      }]);
-    });
-    
-    // Limpiar al desmontar
-    return () => {
-      socketInstance.off('chat:message');
-      socketInstance.disconnect();
-    };
-  }, [user, roomId]);
+    return unsubscribe;
+  }, [user, roomId, emit, on, connectionState]);
   
   // Hacer scroll automático cuando llegan nuevos mensajes
   useEffect(() => {
@@ -179,9 +153,9 @@ export default function ChatBox({ roomId }: ChatBoxProps) {
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!newMessage.trim() || !socket || !user) return;
+    if (!newMessage.trim() || !user) return;
     
-    socket.emit('chat:send', {
+    emit('chat:send', {
       roomId,
       userId: user.userId,
       text: newMessage.trim()

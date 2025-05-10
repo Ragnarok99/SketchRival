@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../auth/AuthContext';
-import { io, Socket } from 'socket.io-client';
+import useSocket, { SocketConnectionState } from '../../hooks/useSocket';
 import ChatBox from './ChatBox';
 
 // Tipos
@@ -260,44 +260,51 @@ export default function WaitingRoom({
     totalPlayers: 0,
     canStart: false,
   });
-  const [socket, setSocket] = useState<Socket | null>(null);
   const [notification, setNotification] = useState<Notification | null>(null);
+  
+  // Usar el hook useSocket para obtener métodos y estado
+  const { 
+    connectionState, 
+    emit, 
+    on, 
+    joinRoom, 
+    leaveRoom, 
+    setReady: setSocketReady, 
+    startGame: startGameSocket 
+  } = useSocket();
   
   // Si el jugador actual es el anfitrión
   const isHost = players.find((p: Player) => p.id === user?.userId)?.isHost || false;
   
-  // Inicializar conexión de socket y obtener datos iniciales
+  // Función para calcular estadísticas de "listos"
+  const calculateReadyStats = (playersList: Player[]) => {
+    const allPlayers = playersList.filter(p => p.role !== 'spectator');
+    const readyPlayers = allPlayers.filter(p => p.isReady);
+    const allReady = allPlayers.length > 0 && readyPlayers.length === allPlayers.length;
+    
+    // Mínimo 2 jugadores para comenzar
+    const canStart = allPlayers.length >= 2 && allReady;
+    
+    setReadyStats({
+      allReady,
+      readyCount: readyPlayers.length,
+      playerCount: allPlayers.length,
+      totalPlayers: 8, // Máximo de jugadores permitidos
+      canStart,
+    });
+  };
+  
+  // Inicializar datos de la sala y configurar event listeners
   useEffect(() => {
-    if (!user) return;
-    
-    let socketInstance: Socket | any;
-    
-    // Intenta conectar a un socket real o usar el mock simulado si está en desarrollo
-    try {
-      // Intentar conectar con un socket real
-      if (process.env.NEXT_PUBLIC_SOCKET_URL) {
-        socketInstance = io(process.env.NEXT_PUBLIC_SOCKET_URL, {
-          auth: {
-            userId: user.userId,
-            username: user.username
-          }
-        });
-      } else {
-        throw new Error('No socket URL available');
+    if (!user || !roomId || connectionState !== SocketConnectionState.CONNECTED) {
+      if (!loading && connectionState === SocketConnectionState.ERROR) {
+        setError('Error de conexión al servidor');
       }
-    } catch (error) {
-      console.log('[MOCK] Usando socket simulado para desarrollo');
-      socketInstance = createMockSocket(user, roomId, onGameStart);
+      return;
     }
     
-    setSocket(socketInstance);
-    
     // Unirse a la sala
-    socketInstance.emit('room:join', {
-      roomId,
-      userId: user.userId,
-      accessCode
-    }, (error?: string, data?: any) => {
+    joinRoom(roomId, accessCode || '', (error?: string, data?: any) => {
       if (error) {
         setError(error);
         setLoading(false);
@@ -331,9 +338,7 @@ export default function WaitingRoom({
     });
     
     // Configurar event listeners
-    
-    // Cuando un jugador se une
-    socketInstance.on('room:playerJoined', (data: any) => {
+    const unsubscribePlayerJoined = on('room:playerJoined', (data: any) => {
       // Asegurarse de que players sea un array
       const playersData = Array.isArray(data.room.players) ? data.room.players : [];
       
@@ -362,8 +367,7 @@ export default function WaitingRoom({
       }, 3000);
     });
     
-    // Cuando un jugador abandona la sala
-    socketInstance.on('room:playerLeft', (data: any) => {
+    const unsubscribePlayerLeft = on('room:playerLeft', (data: any) => {
       // Asegurarse de que players sea un array
       const playersData = Array.isArray(data.room.players) ? data.room.players : [];
       
@@ -396,8 +400,7 @@ export default function WaitingRoom({
       }
     });
     
-    // Cuando un jugador cambia su estado de listo
-    socketInstance.on('room:playerReady', (data: any) => {
+    const unsubscribePlayerReady = on('room:playerReady', (data: any) => {
       // Asegurarse de que players sea un array
       const playersData = Array.isArray(data.room.players) ? data.room.players : [];
       
@@ -410,22 +413,48 @@ export default function WaitingRoom({
         avatarColor: player.avatarColor || '#3b82f6',
       }));
       
-      setPlayers(formattedPlayers);
-      
-      // Si soy yo, actualizar mi estado
+      // Actualizar mi estado de listo
       if (data.playerId === user.userId) {
         setReadyStatus(data.isReady);
       }
       
+      setPlayers(formattedPlayers);
       calculateReadyStats(formattedPlayers);
-      
-      // Mostrar notificación de estado cambiado
-      const changedPlayer = formattedPlayers.find((p: any) => p.id === data.playerId);
-      if (changedPlayer && data.playerId !== user.userId) {
+    });
+    
+    const unsubscribePlayerKicked = on('room:playerKicked', (data: any) => {
+      // Si es uno mismo quien fue expulsado
+      if (data.playerId === user.userId) {
         setNotification({
-          type: data.isReady ? 'success' : 'info',
-          message: `${changedPlayer.username} ${data.isReady ? 'está listo' : 'ya no está listo'}.`
+          type: 'error',
+          message: 'Has sido expulsado de la sala'
         });
+        
+        // Navegar fuera de la sala después de mostrar la notificación
+        setTimeout(() => {
+          onLeaveRoom();
+        }, 2000);
+      } else {
+        // Asegurarse de que players sea un array
+        const playersData = Array.isArray(data.room.players) ? data.room.players : [];
+        
+        const formattedPlayers = playersData.map((player: any) => ({
+          id: player.userId,
+          username: player.username,
+          isReady: player.isReady,
+          isHost: player.role === 'host',
+          role: player.role,
+          avatarColor: player.avatarColor || '#3b82f6',
+        }));
+        
+        // Mostrar notificación
+        setNotification({
+          type: 'warning',
+          message: `${data.kickedPlayerName || 'Un jugador'} ha sido expulsado de la sala.`
+        });
+        
+        setPlayers(formattedPlayers);
+        calculateReadyStats(formattedPlayers);
         
         // Limpiar notificación después de 3 segundos
         setTimeout(() => {
@@ -434,169 +463,90 @@ export default function WaitingRoom({
       }
     });
     
-    // Cuando la sala se actualiza
-    socketInstance.on('room:updated', (data: any) => {
-      // Asegurarse de que players sea un array
-      const playersData = Array.isArray(data.room.players) ? data.room.players : [];
-      
-      const formattedPlayers = playersData.map((player: any) => ({
-        id: player.userId,
-        username: player.username,
-        isReady: player.isReady,
-        isHost: player.role === 'host',
-        role: player.role,
-        avatarColor: player.avatarColor || '#3b82f6',
-      }));
-      
-      setPlayers(formattedPlayers);
-      calculateReadyStats(formattedPlayers);
-    });
-    
-    // Cuando el juego comienza
-    socketInstance.on('room:gameStarted', () => {
-      setNotification({
-        type: 'success',
-        message: '¡El juego ha comenzado!'
-      });
-      
-      // Corto delay antes de iniciar
-      setTimeout(() => {
-        onGameStart();
-      }, 1000);
-    });
-    
-    // Cuando recibimos una notificación
-    socketInstance.on('user:notification', (data: Notification) => {
-      setNotification(data);
-      
-      // Limpiar después de 5 segundos
-      setTimeout(() => {
-        setNotification(null);
-      }, 5000);
-    });
-    
-    // Limpieza al desmontar
-    return () => {
-      if (socketInstance) {
-        socketInstance.off('room:playerJoined');
-        socketInstance.off('room:playerLeft');
-        socketInstance.off('room:playerReady');
-        socketInstance.off('room:updated');
-        socketInstance.off('room:gameStarted');
-        socketInstance.off('user:notification');
-        
-        // Salir de la sala
-        socketInstance.emit('room:leave', {
-          roomId,
-          userId: user.userId
-        });
-        
-        socketInstance.disconnect();
-      }
-    };
-  }, [roomId, user, accessCode, onGameStart, players]);
-  
-  // Calcular estadísticas de "listos"
-  const calculateReadyStats = (playersList: Player[]) => {
-    const playerCount = playersList.filter(p => p.role === 'player' || p.role === 'host').length;
-    const readyCount = playersList.filter(p => p.isReady).length;
-    const allReady = playerCount > 0 && readyCount === playerCount;
-    
-    setReadyStats({
-      allReady,
-      readyCount,
-      playerCount,
-      totalPlayers: 8, // Máximo de jugadores permitidos
-      canStart: allReady && playerCount >= 2 && isHost,
-    });
-  };
-  
-  // Cambiar estado de "listo"
-  const toggleReady = () => {
-    if (!socket || !user) return;
-    
-    socket.emit('room:setReady', {
-      roomId,
-      userId: user.userId,
-      isReady: !readyStatus
-    }, (error?: string) => {
-      if (error) {
-        setError(error);
-      }
-    });
-  };
-  
-  // Iniciar juego (solo anfitrión)
-  const startGame = async () => {
-    if (!isHost || !readyStats.canStart || !socket) return;
-    
-    try {
-      // En desarrollo, podemos directamente simular el evento para pruebas
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Modo desarrollo: Simulando evento room:gameStarted');
+    const unsubscribeGameStarted = on('game:started', (data: any) => {
+      // Asegurarse de que estamos aún en la sala correcta
+      if (data.roomId === roomId) {
         setNotification({
-          type: 'success',
-          message: '¡El juego ha comenzado! (Simulado)'
+          type: 'success', 
+          message: '¡El juego ha comenzado!' 
         });
         
-        // Llamar directamente a onGameStart después de un delay
+        // Notificar al componente padre que el juego ha comenzado
         setTimeout(() => {
           onGameStart();
         }, 1000);
-        return; // No continuar con la llamada API en desarrollo
       }
-      
-      // En producción, llamar al API
-      const response = await fetch(`/api/waiting-room/${roomId}/start`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Error al iniciar el juego');
-      }
-      
-      // El juego comenzará cuando recibamos el evento room:gameStarted desde el servidor
-      console.log('Petición de inicio de juego enviada, esperando evento room:gameStarted');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error desconocido');
-    }
-  };
-  
-  // Expulsar a un jugador (solo anfitrión)
-  const kickPlayer = async (playerId: string) => {
-    if (!isHost || !socket || !user) return;
+    });
     
-    try {
-      const response = await fetch(`/api/waiting-room/${roomId}/kick/${playerId}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Error al expulsar al jugador');
+    // Limpiar al desmontar
+    return () => {
+      unsubscribePlayerJoined();
+      unsubscribePlayerLeft();
+      unsubscribePlayerReady();
+      unsubscribePlayerKicked();
+      unsubscribeGameStarted();
+    };
+  }, [user, roomId, accessCode, connectionState, joinRoom, on, players, calculateReadyStats, onLeaveRoom, onGameStart]);
+  
+  // Cambiar la función toggleReady para usar la función del hook
+  const toggleReady = () => {
+    if (!user || !roomId) return;
+    
+    const newStatus = !readyStatus;
+    setSocketReady(roomId, newStatus, (error?: string) => {
+      if (error) {
+        console.error('Error al cambiar estado de listo:', error);
+        setNotification({
+          type: 'error',
+          message: `Error: ${error}`
+        });
+        
+        setTimeout(() => {
+          setNotification(null);
+        }, 3000);
       }
-      
-      // Mostrar notificación de éxito
-      setNotification({
-        type: 'success',
-        message: 'Jugador expulsado correctamente'
-      });
-      
-      // Limpiar después de 3 segundos
-      setTimeout(() => {
-        setNotification(null);
-      }, 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error desconocido');
-    }
+    });
   };
   
-  // Copiar código de acceso
+  // Cambiar la función startGame para usar la función del hook
+  const startGame = async () => {
+    if (!user || !roomId || !isHost || !readyStats.canStart) return;
+    
+    startGameSocket(roomId, (error?: string) => {
+      if (error) {
+        console.error('Error al iniciar juego:', error);
+        setNotification({
+          type: 'error',
+          message: `Error: ${error}`
+        });
+        
+        setTimeout(() => {
+          setNotification(null);
+        }, 3000);
+      }
+    });
+  };
+  
+  // Cambiar la función kickPlayer para usar emit
+  const kickPlayer = async (playerId: string) => {
+    if (!user || !roomId || !isHost) return;
+    
+    emit('room:kickPlayer', { roomId, playerId }, (error?: string) => {
+      if (error) {
+        console.error('Error al expulsar jugador:', error);
+        setNotification({
+          type: 'error',
+          message: `Error: ${error}`
+        });
+        
+        setTimeout(() => {
+          setNotification(null);
+        }, 3000);
+      }
+    });
+  };
+  
+  // Función para manejar copia de código
   const handleCopyCode = () => {
     if (!accessCode) return;
     
@@ -613,6 +563,9 @@ export default function WaitingRoom({
   
   // Función para manejar salida de sala
   const handleLeaveRoom = () => {
+    if (roomId) {
+      leaveRoom(roomId);
+    }
     onLeaveRoom();
   };
   
@@ -691,8 +644,8 @@ export default function WaitingRoom({
             <p className="text-gray-500 text-center py-4 text-sm sm:text-base">No hay jugadores en la sala</p>
           ) : (
             <ul className="divide-y divide-gray-200">
-              {players.map((player) => (
-                <li key={player.id} className="py-2.5 sm:py-3 flex items-center justify-between">
+              {players.map((player, index) => (
+                <li key={`${player.id}-${index}`} className="py-2.5 sm:py-3 flex items-center justify-between">
                   <div className="flex items-center min-w-0">
                     <div 
                       className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center mr-2 sm:mr-3 flex-shrink-0 border border-gray-300 shadow-sm"
