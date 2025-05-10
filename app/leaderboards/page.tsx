@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import LeaderboardTable from '../../components/leaderboard/LeaderboardTable';
+import LeaderboardTable from '../components/leaderboard/LeaderboardTable';
 import {
   getLeaderboard,
   getActiveSeasons,
@@ -9,12 +9,17 @@ import {
   ApiLeaderboardEntry,
   ApiSeason,
   ApiSeasonReward,
-} from '../../services/apiService';
-import { useAuth } from '../../auth/AuthContext';
+} from '../services/apiService';
+import { useAuth } from '../auth/AuthContext';
 
 // Adaptar la interfaz para la UI si es necesario, o usar ApiLeaderboardEntry directamente
-interface ULeaderboardEntry extends ApiLeaderboardEntry {
-  avatarColor?: string; // Ejemplo de propiedad añadida en el frontend
+interface ULeaderboardEntry {
+  rank: number; // Aseguramos que rank es obligatorio y de tipo número
+  userId: string;
+  username: string;
+  score: number;
+  level?: number;
+  avatarColor?: string; // Propiedad añadida en el frontend
 }
 
 // Función para asignar colores de avatar simples basados en el username
@@ -53,6 +58,7 @@ export default function LeaderboardsPage() {
         const data = await getLeaderboard('global', globalPage, 10); // 10 por página para global
         const uiEntries = data.entries.map((entry: ApiLeaderboardEntry) => ({
           ...entry,
+          rank: entry.rank || 0, // Asignar 0 si no hay rank
           avatarColor: assignAvatarColor(entry.username),
         }));
         setGlobalLeaderboard(uiEntries);
@@ -79,6 +85,7 @@ export default function LeaderboardsPage() {
           const data = await getSeasonLeaderboard(currentSeason.leaderboardCategoryKey, seasonPage, 10);
           const uiEntries = data.entries.map((entry: ApiLeaderboardEntry) => ({
             ...entry,
+            rank: entry.rank || 0, // Asignar 0 si no hay rank
             avatarColor: assignAvatarColor(entry.username),
           }));
           setSeasonLeaderboard(uiEntries);

@@ -247,10 +247,22 @@ class GameStateMachineService {
         roomId: new Types.ObjectId(roomId),
       }).lean();
 
-      return gameState;
+      if (!gameState) return null;
+
+      // Convertir el objeto plano de la consulta a la interfaz esperada
+      // Esto maneja la incompatibilidad entre Record<string, number> y Map
+      if (gameState.scores && !(gameState.scores instanceof Map)) {
+        const scoresMap = new Map();
+        Object.entries(gameState.scores as Record<string, number>).forEach(([key, value]) => {
+          scoresMap.set(key, value);
+        });
+        gameState.scores = scoresMap;
+      }
+
+      return gameState as IGameStateData;
     } catch (error) {
-      console.error(`Error obteniendo estado del juego para sala ${roomId}:`, error);
-      throw error;
+      console.error(`Error al obtener estado del juego para sala ${roomId}:`, error);
+      return null;
     }
   }
 
@@ -320,34 +332,45 @@ class GameStateMachineService {
   private async handleStartGame(context: GameStateContext): Promise<void> {
     const { roomId, gameState } = context;
 
+    // Obtener jugadores listos
+    const readyPlayers = await GamePlayerModel.find({
+      roomId: new Types.ObjectId(roomId),
+      isReady: true,
+    });
+
+    if (readyPlayers.length < 2) {
+      throw new Error('Se necesitan al menos 2 jugadores listos para iniciar');
+    }
+
+    // Actualizar estado de jugadores a PLAYING
+    await GamePlayerModel.updateMany(
+      {
+        roomId: new Types.ObjectId(roomId),
+        isReady: true,
+      },
+      {
+        status: PlayerStatus.PLAYING,
+      },
+    );
+
     // Actualizar estado de la sala
     await GameRoomModel.findByIdAndUpdate(roomId, {
       status: GameRoomStatus.PLAYING,
     });
 
-    // Inicializar datos de juego
-    gameState.currentRound = 1;
-    gameState.startedAt = new Date();
-    gameState.timeRemaining = 5; // 5 segundos de cuenta regresiva
-
-    // Inicializar puntuaciones para todos los jugadores
-    const players = await GamePlayerModel.find({ roomId: new Types.ObjectId(roomId) });
-    const scores = new Map<string, number>();
-
-    for (const player of players) {
-      scores.set(player.userId.toString(), 0);
-
-      // Actualizar estado de jugadores
-      await GamePlayerModel.findByIdAndUpdate(player._id, {
-        status: PlayerStatus.PLAYING,
-        score: 0,
-      });
+    // Inicializar puntuaciones
+    gameState.scores = new Map();
+    for (const player of readyPlayers) {
+      gameState.scores.set(player.userId.toString(), 0);
     }
 
-    gameState.scores = scores;
+    // Establecer primera ronda
+    gameState.currentRound = 1;
+    gameState.startedAt = new Date();
+    gameState.timeRemaining = 5; // 5 segundos de countdown
 
     // Enviar mensaje de sistema
-    socketService.sendSystemChatMessage(roomId, '¡El juego ha comenzado! Preparando primera ronda...');
+    socketService.sendSystemMessage(roomId, '¡El juego ha comenzado! Preparando primera ronda...');
   }
 
   // Iniciar selección de palabra
@@ -358,7 +381,7 @@ class GameStateMachineService {
     const players = await GamePlayerModel.find({
       roomId: new Types.ObjectId(roomId),
       status: PlayerStatus.PLAYING,
-    });
+    }).sort({ createdAt: 1 }); // Ordenar por orden de unión
 
     if (players.length < 2) {
       throw new Error('Se necesitan al menos 2 jugadores para iniciar la ronda');
@@ -371,41 +394,74 @@ class GameStateMachineService {
     }
 
     // Índice del jugador que dibuja basado en la ronda actual
-    const drawerIndex = (gameState.currentRound - 1) % players.length;
-    const currentDrawer = players[drawerIndex];
+    // Utilizando un índice de jugador actual para mantener la rotación
+    // Almacenamos este valor como propiedad del objeto, no como parte del modelo
+    let currentPlayerIndex = 0;
+    if (gameState.currentRound === 1) {
+      // Primera ronda, inicializar el índice
+      currentPlayerIndex = 0;
+    } else {
+      // Recuperar el índice actual (guardado como propiedad temporal)
+      // y avanzar al siguiente jugador
+      const lastPlayerIndex = (gameState as any)._currentPlayerIndex || 0;
+      currentPlayerIndex = (lastPlayerIndex + 1) % players.length;
+    }
+
+    // Guardar el índice para la próxima ronda (como propiedad temporal)
+    (gameState as any)._currentPlayerIndex = currentPlayerIndex;
+
+    const currentDrawer = players[currentPlayerIndex];
 
     // Asignar dibujante actual
     gameState.currentDrawerId = currentDrawer.userId;
 
-    // Generar opciones de palabras según configuración
-    // Aquí usaríamos el servicio de palabras, por ahora usamos palabras de prueba
-    const testWords = ['perro', 'gato', 'casa', 'árbol', 'coche', 'sol', 'luna', 'playa', 'montaña'];
-    const wordOptions = [];
+    // Generar opciones de palabras usando el wordBankService
+    try {
+      // Intentar obtener palabras del servicio
+      const wordService = require('./wordBank.service').default;
+      const difficulty = room.configuration?.difficulty || 'medium';
+      gameState.wordOptions = await wordService.getRandomWords(3, difficulty);
+    } catch (error) {
+      // Si falla, usar palabras predeterminadas
+      console.error('Error al obtener palabras:', error);
+      const testWords = ['perro', 'gato', 'casa', 'árbol', 'coche', 'sol', 'luna', 'playa', 'montaña'];
+      const wordOptions = [];
 
-    // Seleccionar 3 palabras aleatorias
-    const usedIndices = new Set<number>();
-    while (wordOptions.length < 3 && usedIndices.size < testWords.length) {
-      const randomIndex = Math.floor(Math.random() * testWords.length);
-      if (!usedIndices.has(randomIndex)) {
-        usedIndices.add(randomIndex);
-        wordOptions.push(testWords[randomIndex]);
+      // Seleccionar 3 palabras aleatorias
+      const usedIndices = new Set<number>();
+      while (wordOptions.length < 3 && usedIndices.size < testWords.length) {
+        const randomIndex = Math.floor(Math.random() * testWords.length);
+        if (!usedIndices.has(randomIndex)) {
+          usedIndices.add(randomIndex);
+          wordOptions.push(testWords[randomIndex]);
+        }
       }
+
+      gameState.wordOptions = wordOptions;
     }
 
-    gameState.wordOptions = wordOptions;
-    gameState.timeRemaining = 15; // 15 segundos para elegir palabra
+    // Establecer tiempo para selección de palabra
+    const selectionTime = 15; // Por defecto 15 segundos
+    gameState.timeRemaining = selectionTime;
+
+    // Guardar tiempo máximo como propiedad temporal
+    (gameState as any)._currentPhaseMaxTime = selectionTime;
 
     // Enviar opciones de palabra solo al dibujante
     socketService.getIO()?.to(currentDrawer.userId.toString()).emit('game:wordSelection', {
-      options: wordOptions,
+      options: gameState.wordOptions,
       timeRemaining: gameState.timeRemaining,
+      maxTime: selectionTime,
     });
 
     // Notificar a todos quién dibujará
-    socketService.sendSystemChatMessage(
+    socketService.sendSystemMessage(
       roomId,
-      `¡Ronda ${gameState.currentRound}! ${currentDrawer.username} va a dibujar. Esperando selección de palabra...`,
+      `¡Ronda ${gameState.currentRound} de ${gameState.totalRounds}! ${currentDrawer.username} va a dibujar. Esperando selección de palabra...`,
     );
+
+    // Iniciar el temporizador para la fase de selección de palabra
+    this.startPhaseTimer(roomId, gameState.timeRemaining);
   }
 
   // Manejar palabra seleccionada
@@ -431,7 +487,7 @@ class GameStateMachineService {
     gameState.timeRemaining = room?.configuration.roundTime || 90;
 
     // Notificar a todos que se inicia fase de dibujo
-    socketService.sendSystemChatMessage(
+    socketService.sendSystemMessage(
       roomId,
       `${gameState.timeRemaining} segundos para dibujar. ¡Prepárense para adivinar!`,
     );
@@ -465,7 +521,7 @@ class GameStateMachineService {
       );
     }
 
-    socketService.sendSystemChatMessage(
+    socketService.sendSystemMessage(
       roomId,
       `Tiempo de selección agotado. ${gameState.timeRemaining} segundos para dibujar. ¡Prepárense para adivinar!`,
     );
@@ -496,7 +552,7 @@ class GameStateMachineService {
     gameState.timeRemaining = 60;
 
     // Notificar a todos que comienza fase de adivinanza
-    socketService.sendSystemChatMessage(
+    socketService.sendSystemMessage(
       roomId,
       `¡El dibujo está listo! Tienen ${gameState.timeRemaining} segundos para adivinar.`,
     );
@@ -536,10 +592,7 @@ class GameStateMachineService {
     gameState.timeRemaining = 60;
 
     // Notificar que el tiempo se agotó
-    socketService.sendSystemChatMessage(
-      roomId,
-      `¡Tiempo de dibujo agotado! Pasamos directamente a la fase de adivinanza.`,
-    );
+    socketService.sendSystemMessage(roomId, `¡Tiempo de dibujo agotado! Pasamos directamente a la fase de adivinanza.`);
 
     // Notificar al dibujante
     if (gameState.currentDrawerId) {
@@ -555,50 +608,35 @@ class GameStateMachineService {
   private async handleSubmitGuess(context: GameStateContext): Promise<void> {
     const { roomId, gameState, payload, userId } = context;
 
-    if (!userId) {
-      throw new Error('Usuario no identificado');
+    if (!userId || !payload.guess || !gameState.currentWord) {
+      throw new Error('Datos de adivinanza incompletos');
     }
 
-    // Verificar que no es el dibujante
-    if (userId === gameState.currentDrawerId?.toString()) {
-      throw new Error('El dibujante no puede adivinar');
-    }
+    // Comprobar si la adivinanza es correcta
+    const guess = payload.guess;
+    const isCorrect = this.checkGuessCorrectness(guess, gameState.currentWord);
 
-    // Verificar si ya existe una adivinanza de este usuario para esta ronda
-    const existingGuess = gameState.guesses?.find(
-      (g) => g.userId.toString() === userId && g.drawingId.toString() === payload.drawingId,
-    );
-
-    if (existingGuess) {
-      throw new Error('Ya has enviado una adivinanza para este dibujo');
-    }
-
-    // Verificar si la adivinanza es correcta
-    const isCorrect = this.checkGuessCorrectness(payload.guess, gameState.currentWord || '');
-
-    // Calcular puntuación (simplificado por ahora)
-    let score = 0;
-    if (isCorrect) {
-      // Puntos base por respuesta correcta
-      score = 100;
-
-      // Bonificación por tiempo restante (máx 50 puntos)
-      const timeBonus = Math.floor((gameState.timeRemaining / 60) * 50);
-      score += timeBonus;
-    }
+    // Calcular puntuación (más puntos si es más rápido)
+    const timeLeft = gameState.timeRemaining; // Tiempo restante en segundos
+    const maxPoints = 100; // Puntos máximos posibles
+    const score = isCorrect ? Math.max(Math.floor((timeLeft / 60) * maxPoints), 10) : 0;
 
     // Guardar la adivinanza
     if (!gameState.guesses) {
       gameState.guesses = [];
     }
 
-    gameState.guesses.push({
-      userId: new Types.ObjectId(userId),
-      drawingId: new Types.ObjectId(payload.drawingId),
-      guess: payload.guess,
-      correct: isCorrect,
-      score,
-    });
+    if (gameState.drawings && gameState.drawings.length > 0) {
+      const currentDrawing = gameState.drawings[gameState.drawings.length - 1];
+
+      gameState.guesses.push({
+        userId: new Types.ObjectId(userId),
+        drawingId: new Types.ObjectId(), // ID temporal
+        guess,
+        correct: isCorrect,
+        score,
+      });
+    }
 
     // Actualizar puntuación del jugador
     if (isCorrect && gameState.scores) {
@@ -612,7 +650,7 @@ class GameStateMachineService {
       }
 
       // Notificar a todos que alguien adivinó correctamente
-      socketService.sendSystemChatMessage(roomId, `¡${payload.username || 'Alguien'} ha adivinado correctamente!`);
+      socketService.sendSystemMessage(roomId, `¡${payload.username || 'Alguien'} ha adivinado correctamente!`);
 
       // Enviar a todos los nuevos puntajes
       socketService
@@ -660,10 +698,7 @@ class GameStateMachineService {
     const { roomId, gameState } = context;
 
     // Enviar mensaje de tiempo agotado
-    socketService.sendSystemChatMessage(
-      roomId,
-      `¡Tiempo de adivinanza agotado! La palabra era: ${gameState.currentWord}`,
-    );
+    socketService.sendSystemMessage(roomId, `¡Tiempo de adivinanza agotado! La palabra era: ${gameState.currentWord}`);
 
     // Configurar tiempo para mostrar resultados de ronda
     gameState.timeRemaining = 10; // 10 segundos para ver resultados
@@ -685,52 +720,99 @@ class GameStateMachineService {
     // Limpiar datos de ronda anterior
     gameState.currentWord = undefined;
     gameState.wordOptions = undefined;
+    // No reseteamos currentDrawerId para mantener la rotación
 
     // Enviar mensaje de nueva ronda
-    socketService.sendSystemChatMessage(
+    socketService.sendSystemMessage(
       roomId,
       `Preparando ronda ${gameState.currentRound} de ${gameState.totalRounds}...`,
     );
+
+    // Configurar tiempo para transición a la siguiente ronda
+    const transitionTime = 5; // 5 segundos de transición
+    gameState.timeRemaining = transitionTime;
+
+    // Guardar tiempo máximo como propiedad temporal
+    (gameState as any)._currentPhaseMaxTime = transitionTime;
+
+    // Notificar a todos de la transición
+    socketService.getIO()?.to(roomId).emit('game:stateUpdated', {
+      currentState: gameState.currentState,
+      currentRound: gameState.currentRound,
+      totalRounds: gameState.totalRounds,
+      timeRemaining: gameState.timeRemaining,
+      currentPhaseMaxTime: transitionTime,
+    });
+
+    // Iniciar temporizador para transición a selección de palabra
+    this.startPhaseTimer(roomId, gameState.timeRemaining, () => {
+      this.processEvent(roomId, GameEvent.TIMER_END); // Esto llevará a WORD_SELECTION
+    });
   }
 
   // Manejar fin del juego
   private async handleEndGame(context: GameStateContext): Promise<void> {
     const { roomId, gameState } = context;
 
-    // Calcular ganador
-    let winnerId: string | undefined;
-    let highestScore = -1;
+    // Calcular top 3 jugadores con mayor puntuación
+    type PlayerScore = { userId: string; username: string; score: number; rank: number };
+    const rankedPlayers: PlayerScore[] = [];
 
-    gameState.scores?.forEach((score, userId) => {
-      if (score > highestScore) {
-        highestScore = score;
-        winnerId = userId;
+    if (gameState.scores) {
+      // Convertir map a array y ordenar por puntuación
+      const scoresMap = gameState.scores as Map<string, number>;
+      for (const [userId, score] of scoresMap.entries()) {
+        // Obtener nombre del jugador
+        const player = await GamePlayerModel.findOne({
+          roomId: new Types.ObjectId(roomId),
+          userId: new Types.ObjectId(userId),
+        });
+
+        rankedPlayers.push({
+          userId,
+          username: player?.username || 'Jugador desconocido',
+          score,
+          rank: 0, // Se asignará después
+        });
       }
-    });
 
-    // Obtener nombre del ganador
-    let winnerName = 'Desconocido';
-    if (winnerId) {
-      const winner = await GamePlayerModel.findOne({
-        roomId: new Types.ObjectId(roomId),
-        userId: new Types.ObjectId(winnerId),
+      // Ordenar de mayor a menor
+      rankedPlayers.sort((a, b) => b.score - a.score);
+
+      // Asignar rangos (podium)
+      rankedPlayers.forEach((player, index) => {
+        player.rank = index + 1;
       });
-      winnerName = winner?.username || winnerName;
     }
 
+    // Obtener al ganador (jugador con mayor puntuación)
+    const winner = rankedPlayers.length > 0 ? rankedPlayers[0] : null;
+
     // Notificar resultados finales
-    socketService.sendSystemChatMessage(roomId, `¡Juego terminado! Ganador: ${winnerName} con ${highestScore} puntos.`);
+    if (winner) {
+      socketService.sendSystemMessage(
+        roomId,
+        `¡Juego terminado! Ganador: ${winner.username} con ${winner.score} puntos.`,
+      );
+    } else {
+      socketService.sendSystemMessage(roomId, '¡Juego terminado!');
+    }
 
     // Enviar evento de fin de juego con resultados
     socketService
       .getIO()
       ?.to(roomId)
       .emit('game:gameEnded', {
-        winner: {
-          id: winnerId,
-          name: winnerName,
-          score: highestScore,
-        },
+        winner: winner
+          ? {
+              id: winner.userId,
+              name: winner.username,
+              score: winner.score,
+              rank: winner.rank,
+            }
+          : null,
+        podium: rankedPlayers.slice(0, 3), // Top 3 jugadores
+        allPlayers: rankedPlayers, // Todos los jugadores ordenados
         scores: Object.fromEntries(gameState.scores || new Map()),
       });
 
@@ -740,7 +822,14 @@ class GameStateMachineService {
     });
 
     // Establecer tiempo para mostrar resultados
-    gameState.timeRemaining = 30; // 30 segundos para ver resultados finales
+    const resultsTime = 30; // 30 segundos para ver resultados finales
+    gameState.timeRemaining = resultsTime;
+
+    // Guardar tiempo máximo como propiedad temporal
+    (gameState as any)._currentPhaseMaxTime = resultsTime;
+
+    // Iniciar temporizador para la fase de resultados
+    this.startPhaseTimer(roomId, gameState.timeRemaining);
   }
 
   // Manejar pausa del juego
@@ -748,7 +837,7 @@ class GameStateMachineService {
     const { roomId } = context;
 
     // Notificar pausa
-    socketService.sendSystemChatMessage(roomId, 'El juego ha sido pausado.');
+    socketService.sendSystemMessage(roomId, 'El juego ha sido pausado.');
   }
 
   // Manejar reanudación del juego
@@ -756,7 +845,7 @@ class GameStateMachineService {
     const { roomId, gameState } = context;
 
     // Notificar reanudación
-    socketService.sendSystemChatMessage(
+    socketService.sendSystemMessage(
       roomId,
       `El juego ha sido reanudado. Continuando desde ${gameState.currentState}...`,
     );
@@ -769,7 +858,7 @@ class GameStateMachineService {
     const errorMessage = payload?.message || 'Ha ocurrido un error en el juego.';
 
     // Notificar error
-    socketService.sendSystemChatMessage(roomId, `ERROR: ${errorMessage}`);
+    socketService.sendSystemMessage(roomId, `ERROR: ${errorMessage}`);
   }
 
   // Manejar reinicio del juego
@@ -792,7 +881,30 @@ class GameStateMachineService {
     );
 
     // Notificar reinicio
-    socketService.sendSystemChatMessage(roomId, 'El juego ha sido reiniciado.');
+    socketService.sendSystemMessage(roomId, 'El juego ha sido reiniciado.');
+  }
+
+  // Método para iniciar y gestionar temporizadores de fase
+  private startPhaseTimer(roomId: string, duration: number, callback?: () => void) {
+    // Intervalo para actualizar cada segundo
+    const timer = setInterval(() => {
+      duration--;
+
+      // Emitir actualización de tiempo a todos los jugadores
+      socketService.getIO()?.to(roomId).emit('game:timeUpdate', {
+        timeRemaining: duration,
+      });
+
+      // Si el tiempo llega a cero
+      if (duration <= 0) {
+        clearInterval(timer);
+        if (callback) callback();
+      }
+    }, 1000);
+
+    // Guardar referencia al timer para poder cancelarlo si es necesario
+    // (idealmente en una estructura que permita tener múltiples timers para diferentes salas)
+    // Por simplicidad, aquí no implementamos la cancelación
   }
 }
 
