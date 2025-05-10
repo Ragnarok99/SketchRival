@@ -48,6 +48,7 @@ export enum SocketEvent {
   GAME_START = 'game:start',
   GAME_UPDATE = 'game:update',
   GAME_STATE_CHANGED = 'game:stateChanged', // Nuevo evento para cambios de estado
+  GAME_GET_STATE = 'game:getState', // Nuevo evento
   GAME_END = 'game:end',
   GAME_TURN = 'game:turn',
   GAME_SUBMIT = 'game:submit',
@@ -501,6 +502,41 @@ class SocketService {
       // TODO: Implementar cuando se desarrolle el juego
       callback?.();
     });
+
+    // Manejar solicitud de estado del juego
+    socket.on(
+      SocketEvent.GAME_GET_STATE,
+      async (data: { roomId: string }, callback: (error: any, state: any) => void) => {
+        try {
+          const { roomId } = data;
+          if (!roomId) {
+            logger.warn('game:getState llamado sin roomId');
+            return callback({ message: 'Room ID is required for game:getState' }, null);
+          }
+
+          const client = this.clients.get(socket.id);
+          logger.info(`User ${client?.username || 'Unknown'} (${socket.id}) requested game state for room ${roomId}`);
+
+          const gameState = await gameStateMachineService.getGameState(roomId);
+
+          if (!gameState) {
+            logger.warn(`No game state found by gameStateMachineService for room ${roomId}. Returning null.`);
+            // Es posible que la sala exista pero el juego aún no haya comenzado formalmente (sin estado en la máquina).
+            // El cliente debería poder manejar un estado nulo o un estado inicial por defecto.
+            return callback(null, null);
+          }
+
+          // Opcional: Actualizar cache interna si gameStateMachineService tiene el estado más reciente.
+          // this.updateRoomState(roomId, gameState);
+
+          logger.info(`Returning game state for room ${roomId} to ${client?.username || 'Unknown'}`);
+          callback(null, gameState);
+        } catch (error: any) {
+          logger.error(`Error in game:getState for room ${data?.roomId}:`, error);
+          callback({ message: error.message || 'Failed to get game state from server' }, null);
+        }
+      },
+    );
   }
 
   // Iniciar el heartbeat para mantener conexiones activas
@@ -845,6 +881,23 @@ class SocketService {
   // Obtener instancia del servidor Socket.io
   getIO(): SocketServer | null {
     return this.io;
+  }
+
+  // Notificar a todos los usuarios de una sala que el juego ha comenzado
+  notifyGameStarted(roomId: string, gameRoom: any) {
+    if (!this.io) return;
+
+    // Emitir evento de inicio de juego a todos en la sala
+    this.io.to(roomId).emit(SocketEvent.ROOM_GAME_STARTED, {
+      roomId,
+      gameId: gameRoom.currentGame?.id,
+      startedAt: new Date(),
+    });
+
+    // También enviar una notificación
+    this.sendRoomNotification(roomId, 'success', '¡El juego ha comenzado!');
+
+    logger.info(`Game started notification sent to room ${roomId}`);
   }
 }
 

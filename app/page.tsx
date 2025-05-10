@@ -18,13 +18,13 @@ export default function HomePage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-md md:max-w-lg">
         <Link
-          href="/gameroom"
+          href="/gameRoom"
           className="w-full bg-indigo-600 text-white py-4 px-6 rounded-lg text-lg font-semibold hover:bg-indigo-700 transition-transform transform hover:scale-105 shadow-lg"
         >
           Buscar Partida
         </Link>
         <Link
-          href="/gameroom/create"
+          href="/gameRoom/create"
           className="w-full bg-pink-500 text-white py-4 px-6 rounded-lg text-lg font-semibold hover:bg-pink-600 transition-transform transform hover:scale-105 shadow-lg"
         >
           Crear Sala

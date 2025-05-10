@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { useGameState, GameState } from '../../contexts/GameStateContext';
 import { SwitchTransition, CSSTransition } from 'react-transition-group';
 import WaitingRoom from './WaitingRoom';
@@ -28,7 +28,8 @@ export default function GameContainer({
   accessCode,
   onLeaveRoom,
 }: GameContainerProps) {
-  const { state, isLoading } = useGameState();
+  const { state, dispatch, isLoading } = useGameState();
+  const nodeRef = useRef(null); // Referencia para CSSTransition
 
   // Si está cargando, mostrar pantalla de carga
   if (isLoading) {
@@ -45,7 +46,19 @@ export default function GameContainer({
             roomName={roomName}
             isPrivate={isPrivate}
             accessCode={accessCode}
-            onGameStart={() => {}} // Manejado por el contexto
+            onGameStart={() => {
+              // Actualizar el estado manualmente cuando el WaitingRoom recibe room:gameStarted
+              console.log('Sala de espera informa inicio de juego - transitando a STARTING');
+              
+              // Actualizar el estado directamente usando dispatch
+              dispatch({ 
+                type: 'SET_STATE', 
+                payload: { 
+                  currentState: GameState.STARTING,
+                  previousState: GameState.WAITING
+                }
+              });
+            }}
             onLeaveRoom={onLeaveRoom}
           />
         );
@@ -90,13 +103,14 @@ export default function GameContainer({
   return (
     <SwitchTransition mode="out-in">
       <CSSTransition
+        nodeRef={nodeRef} // Usar la referencia en lugar de findDOMNode
         key={state.currentState} // Clave para que SwitchTransition detecte el cambio
         timeout={300} // Duración de la animación en ms (debe coincidir con CSS)
         classNames="fade" // Prefijo para las clases CSS (ej. fade-enter, fade-exit)
         unmountOnExit
         appear // Aplicar transición en el montaje inicial si es necesario
       >
-        <div className="w-full min-h-[400px]">{/* Contenedor para aplicar la animación y asegurar altura mínima */}
+        <div ref={nodeRef} className="w-full min-h-[400px]">{/* Contenedor para aplicar la animación y asegurar altura mínima */}
           {renderGameState()}
         </div>
       </CSSTransition>

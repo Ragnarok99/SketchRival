@@ -206,14 +206,37 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
   }, [dispatch]);
 
   useEffect(() => {
-    if (!socket || connectionState !== SocketConnectionState.CONNECTED || !user) return;
+    if (!socket || connectionState !== SocketConnectionState.CONNECTED || !user) {
+      console.log('[GameStateContext] useEffect: Socket no listo o usuario no autenticado. Saliendo.');
+      if (isLoading) setIsLoading(false); // Si estábamos cargando y no hay socket, dejar de cargar.
+      return;
+    }
+    
+    console.log('[GameStateContext] useEffect: Socket listo y usuario autenticado. Estableciendo isLoading a true y emitiendo game:getState');
     setIsLoading(true);
+
     emit('game:getState', { roomId }, (error: any, data: any) => {
-      if (error) dispatch({ type: 'SET_ERROR', error: { message: error, code: 'GET_STATE_ERROR' } });
-      else if (data) dispatch({ type: 'SET_STATE', payload: data });
+      console.log('[GameStateContext] game:getState CALLBACK EJECUTADO');
+      if (error) {
+        console.error('[GameStateContext] game:getState ERROR:', error);
+        dispatch({ type: 'SET_ERROR', error: { message: error.message || JSON.stringify(error), code: 'GET_STATE_ERROR' } });
+      } else if (data) {
+        console.log('[GameStateContext] game:getState DATOS RECIBIDOS:', data);
+        dispatch({ type: 'SET_STATE', payload: data });
+      } else {
+        console.warn('[GameStateContext] game:getState: No se recibieron datos ni errores. El estado inicial podría ser nulo.');
+        // Opcionalmente, establecer un estado por defecto o manejarlo como un error si se espera siempre un estado.
+        // Por ahora, permitimos que el estado se establezca como null o vacío si es lo que devuelve el servidor.
+        dispatch({ type: 'SET_STATE', payload: initialState }); // Volver al estado inicial si no hay datos.
+      }
+      console.log('[GameStateContext] game:getState: Estableciendo isLoading a false.');
       setIsLoading(false);
     });
-    const unsubState = on('game:stateUpdated', (data: Partial<GameStateData>) => dispatch({ type: 'SET_STATE', payload: data }));
+
+    const unsubState = on('game:stateUpdated', (data: Partial<GameStateData>) => {
+      console.log('[GameStateContext] game:stateUpdated RECIBIDO:', data);
+      dispatch({ type: 'SET_STATE', payload: data });
+    });
     const unsubTimer = on('game:timeUpdate', (data: { timeRemaining: number }) => dispatch({ type: 'UPDATE_TIME_REMAINING', timeRemaining: data.timeRemaining }));
     const unsubError = on('game:error', (data: { message: string; code: string }) => dispatch({ type: 'SET_ERROR', error: data }));
     const unsubNotification = on('user:notification', (data: any) => {
@@ -224,8 +247,37 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
             duration: data.duration || 5000 // Duración un poco más larga para notificaciones del servidor
         });
     });
-    return () => { unsubState(); unsubTimer(); unsubError(); unsubNotification(); };
-  }, [socket, connectionState, user, roomId, emit, on, showToast]); // showToast añadido como dependencia
+    
+    // Agregar manejador específico para cuando el juego comienza
+    const unsubGameStarted = on('room:gameStarted', (data: any) => {
+        console.log('[GameStateContext] room:gameStarted RECIBIDO:', data);
+        // Actualizar el estado para comenzar el juego
+        dispatch({ 
+            type: 'SET_STATE', 
+            payload: { 
+                currentState: GameState.STARTING,
+                previousState: GameState.WAITING,
+                startedAt: new Date()
+            }
+        });
+        
+        // Mostrar toast de inicio de juego
+        showToast({
+            id: Date.now().toString(),
+            type: 'success',
+            message: '¡El juego ha comenzado!',
+            duration: 3000
+        });
+    });
+    
+    return () => { 
+        unsubState(); 
+        unsubTimer(); 
+        unsubError(); 
+        unsubNotification();
+        unsubGameStarted(); // Limpiar este manejador también
+    };
+  }, [socket, connectionState, user, roomId, emit, on, showToast]);
 
   const triggerEvent = useCallback((event: GameEvent, payload?: any) => {
     if (!socket || connectionState !== SocketConnectionState.CONNECTED) {

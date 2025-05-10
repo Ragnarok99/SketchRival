@@ -531,6 +531,22 @@ export default function WaitingRoom({
     if (!isHost || !readyStats.canStart || !socket) return;
     
     try {
+      // En desarrollo, podemos directamente simular el evento para pruebas
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Modo desarrollo: Simulando evento room:gameStarted');
+        setNotification({
+          type: 'success',
+          message: '¡El juego ha comenzado! (Simulado)'
+        });
+        
+        // Llamar directamente a onGameStart después de un delay
+        setTimeout(() => {
+          onGameStart();
+        }, 1000);
+        return; // No continuar con la llamada API en desarrollo
+      }
+      
+      // En producción, llamar al API
       const response = await fetch(`/api/waiting-room/${roomId}/start`, {
         method: 'POST',
         headers: {
@@ -542,17 +558,8 @@ export default function WaitingRoom({
         throw new Error('Error al iniciar el juego');
       }
       
-      // El juego comenzará cuando recibamos el evento room:gameStarted
-      // Pero para desarrollo, simulamos el evento directamente
-      if (process.env.NODE_ENV === 'development') {
-        // Para el modo mock, simulamos la respuesta
-        socket.emit('room:gameStarted');
-        
-        // Y llamamos directamente al onGameStart después de un delay para simular
-        setTimeout(() => {
-          onGameStart();
-        }, 1000);
-      }
+      // El juego comenzará cuando recibamos el evento room:gameStarted desde el servidor
+      console.log('Petición de inicio de juego enviada, esperando evento room:gameStarted');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido');
     }
