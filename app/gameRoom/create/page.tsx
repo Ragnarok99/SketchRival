@@ -78,6 +78,14 @@ export default function CreateRoomPage() {
   useEffect(() => {
     const fetchConfigurations = async () => {
       try {
+        // Verificar si fetchWithAuth está disponible
+        if (!fetchWithAuth) {
+          console.error('Error: fetchWithAuth no está disponible');
+          setAvailableCategories(['general', 'ciencia', 'deportes', 'entretenimiento', 'historia']);
+          setAvailablePresets(['quick', 'standard', 'extended', 'competitive', 'teams', 'casual']);
+          return;
+        }
+
         const response = await fetchWithAuth('/api/configs');
         if (!response.ok) {
           throw new Error('Error al cargar configuraciones');
@@ -159,6 +167,15 @@ export default function CreateRoomPage() {
   const loadPreset = async (presetName: string) => {
     try {
       setLoading(true);
+      
+      // Verificar si fetchWithAuth está disponible
+      if (!fetchWithAuth) {
+        console.error('Error: fetchWithAuth no está disponible');
+        setLoading(false);
+        setError('No se pudo cargar el servicio de API');
+        return;
+      }
+      
       const response = await fetchWithAuth(`/api/configs/presets/${presetName}`);
       
       if (!response.ok) {
@@ -189,6 +206,15 @@ export default function CreateRoomPage() {
     
     try {
       setIsGeneratingCode(true);
+      
+      // Verificar si fetchWithAuth está disponible
+      if (!fetchWithAuth) {
+        console.error('Error: fetchWithAuth no está disponible');
+        setIsGeneratingCode(false);
+        setError('No se pudo cargar el servicio de API');
+        return;
+      }
+      
       const response = await fetchWithAuth('/api/rooms/generate-code');
       
       if (!response.ok) {
@@ -229,6 +255,14 @@ export default function CreateRoomPage() {
       setLoading(true);
       setError(null);
       
+      // Verificar si fetchWithAuth está disponible
+      if (!fetchWithAuth) {
+        console.error('Error: fetchWithAuth no está disponible');
+        setLoading(false);
+        setError('No se pudo cargar el servicio de API');
+        return;
+      }
+      
       const response = await fetchWithAuth('/api/rooms', {
         method: 'POST',
         body: JSON.stringify({
@@ -248,8 +282,8 @@ export default function CreateRoomPage() {
             useAdaptiveTime: formData.config.useAdaptiveTime,
             enableVotingSystem: formData.config.enableVotingSystem,
             wordChoiceCount: parseInt(formData.config.wordChoiceCount.toString())
-          },
-        }),
+          }
+        })
       });
       
       if (!response.ok) {

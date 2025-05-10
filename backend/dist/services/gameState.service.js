@@ -18,6 +18,8 @@ const socket_service_1 = __importDefault(require("./socket.service"));
 // Clase para el servicio de la máquina de estados
 class GameStateMachineService {
     constructor() {
+        // Mapa para almacenar los temporizadores activos por sala
+        this.roomTimers = new Map();
         // Definición de la máquina de estados
         this.stateMachine = {
             // Estado: WAITING (sala de espera)
@@ -152,6 +154,10 @@ class GameStateMachineService {
                 if (!transition) {
                     throw new Error(`Evento no permitido (${event}) en el estado: ${gameState.currentState}`);
                 }
+                // Manejar la pausa de temporizadores si es necesario
+                if (event === models_1.GameEvent.PAUSE_GAME) {
+                    this.pauseTimer(roomId);
+                }
                 // Crear contexto para la acción
                 const context = {
                     roomId,
@@ -169,20 +175,25 @@ class GameStateMachineService {
                 let targetState = transition.targetState;
                 if (event === models_1.GameEvent.RESUME_GAME && gameState.previousState) {
                     targetState = gameState.previousState;
+                    // Reanudar temporizador si existía
+                    this.resumeTimer(roomId);
                     // Limpiar el estado anterior
                     gameState.previousState = undefined;
                 }
                 // Actualizar el estado
                 gameState.currentState = targetState;
                 gameState.lastUpdated = new Date();
-                // Guardar el estado actualizado
-                yield models_1.GameStateModel.findByIdAndUpdate(gameState._id, gameState);
+                // Guardar el estado actualizado - necesario convertir a Document debido al _id
+                const gameStateId = gameState._id;
+                yield models_1.GameStateModel.findByIdAndUpdate(gameStateId, gameState);
                 // Notificar cambio de estado a todos los usuarios
                 yield this.notifyStateChange(roomId, gameState);
                 return gameState;
             }
             catch (error) {
                 console.error(`Error procesando evento ${event} en sala ${roomId}:`, error);
+                // Si hay un timer activo para esta sala y ocurre un error, detenerlo
+                this.stopTimer(roomId);
                 // Intentar registrar el error en el estado
                 try {
                     const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
@@ -259,6 +270,13 @@ class GameStateMachineService {
         return __awaiter(this, void 0, void 0, function* () {
             var _a;
             try {
+                // Convertir Map a objeto para enviar por socket
+                const scoresObject = {};
+                if (gameState.scores) {
+                    for (const [key, value] of gameState.scores.entries()) {
+                        scoresObject[key] = value;
+                    }
+                }
                 // Enviar notificación de cambio de estado mediante socket.io
                 (_a = socket_service_1.default
                     .getIO()) === null || _a === void 0 ? void 0 : _a.to(roomId).emit('game:stateChanged', {
@@ -268,7 +286,7 @@ class GameStateMachineService {
                         totalRounds: gameState.totalRounds,
                         timeRemaining: gameState.timeRemaining,
                         currentDrawerId: gameState.currentDrawerId,
-                        scores: Object.fromEntries(gameState.scores || new Map()),
+                        scores: scoresObject,
                         // No enviar la palabra actual a todos (solo al dibujante)
                     },
                 });
@@ -730,26 +748,160 @@ class GameStateMachineService {
             socket_service_1.default.sendSystemMessage(roomId, 'El juego ha sido reiniciado.');
         });
     }
-    // Método para iniciar y gestionar temporizadores de fase
+    // NUEVOS MÉTODOS PARA GESTIÓN DE TEMPORIZADORES
+    // ---------------------------------------------
+    // Método principal para iniciar y gestionar temporizadores de fase
     startPhaseTimer(roomId, duration, callback) {
-        // Intervalo para actualizar cada segundo
-        const timer = setInterval(() => {
+        // Detener cualquier temporizador existente para esta sala
+        this.stopTimer(roomId);
+        // Calcular timestamps para seguimiento del temporizador
+        const startTime = Date.now();
+        const endTime = startTime + duration * 1000;
+        // Crear intervalo para actualizar cada segundo
+        const timerId = setInterval(() => {
             var _a;
-            duration--;
+            // Obtener el timer actual
+            const timer = this.roomTimers.get(roomId);
+            // Si no hay timer o está pausado, salir
+            if (!timer || timer.isPaused)
+                return;
+            // Calcular tiempo restante basado en timestamp actual
+            const now = Date.now();
+            const elapsedMs = now - startTime;
+            const remainingSecs = Math.max(0, Math.ceil((duration * 1000 - elapsedMs) / 1000));
+            // Actualizar tiempo restante en el objeto timer
+            timer.remainingTime = remainingSecs;
+            this.roomTimers.set(roomId, timer);
             // Emitir actualización de tiempo a todos los jugadores
             (_a = socket_service_1.default.getIO()) === null || _a === void 0 ? void 0 : _a.to(roomId).emit('game:timeUpdate', {
-                timeRemaining: duration,
+                timeRemaining: remainingSecs,
+                startTime: startTime,
+                endTime: endTime,
             });
             // Si el tiempo llega a cero
-            if (duration <= 0) {
-                clearInterval(timer);
+            if (remainingSecs <= 0) {
+                this.stopTimer(roomId);
                 if (callback)
                     callback();
             }
         }, 1000);
-        // Guardar referencia al timer para poder cancelarlo si es necesario
-        // (idealmente en una estructura que permita tener múltiples timers para diferentes salas)
-        // Por simplicidad, aquí no implementamos la cancelación
+        // Guardar referencia al timer
+        this.roomTimers.set(roomId, {
+            timerId,
+            startTime,
+            duration,
+            endTime,
+            remainingTime: duration,
+            isPaused: false,
+        });
+        // Actualizar el estado del juego con los valores de tiempo
+        this.updateGameStateTime(roomId, duration);
+    }
+    // Actualizar tiempo en el estado del juego
+    updateGameStateTime(roomId, timeRemaining, currentPhaseMaxTime) {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a;
+            try {
+                // Si no se proporciona currentPhaseMaxTime, usar el valor de timeRemaining
+                const maxTime = currentPhaseMaxTime || timeRemaining;
+                yield models_1.GameStateModel.findOneAndUpdate({ roomId: new mongoose_1.Types.ObjectId(roomId) }, {
+                    $set: {
+                        timeRemaining,
+                        currentPhaseMaxTime: maxTime,
+                    },
+                });
+                // Notificar a los clientes sobre la actualización del tiempo
+                (_a = socket_service_1.default.getIO()) === null || _a === void 0 ? void 0 : _a.to(roomId).emit('game:stateUpdated', {
+                    timeRemaining,
+                    currentPhaseMaxTime: maxTime,
+                });
+            }
+            catch (error) {
+                console.error(`Error actualizando tiempo en estado del juego para sala ${roomId}:`, error);
+            }
+        });
+    }
+    // Pausar el temporizador de una sala
+    pauseTimer(roomId) {
+        const timer = this.roomTimers.get(roomId);
+        if (!timer || timer.isPaused)
+            return;
+        // Detener el intervalo
+        clearInterval(timer.timerId);
+        // Marcar como pausado y guardar tiempo de pausa
+        timer.isPaused = true;
+        timer.pausedAt = Date.now();
+        // Actualizar en el mapa
+        this.roomTimers.set(roomId, timer);
+        console.log(`Timer pausado para sala ${roomId}. Tiempo restante: ${timer.remainingTime}s`);
+    }
+    // Reanudar el temporizador de una sala
+    resumeTimer(roomId) {
+        const timer = this.roomTimers.get(roomId);
+        if (!timer || !timer.isPaused || !timer.pausedAt)
+            return;
+        // Calcular el tiempo transcurrido durante la pausa
+        const pauseDuration = (Date.now() - timer.pausedAt) / 1000;
+        // Actualizar los timestamps
+        timer.startTime = Date.now() - (timer.duration - timer.remainingTime) * 1000;
+        timer.endTime = timer.startTime + timer.remainingTime * 1000;
+        // Iniciar un nuevo intervalo
+        const newTimerId = setInterval(() => {
+            var _a;
+            // Verificar si el timer sigue existiendo y no está pausado
+            const currentTimer = this.roomTimers.get(roomId);
+            if (!currentTimer || currentTimer.isPaused)
+                return;
+            // Calcular tiempo restante
+            const now = Date.now();
+            const remainingSecs = Math.max(0, Math.ceil((currentTimer.endTime - now) / 1000));
+            // Actualizar tiempo restante
+            currentTimer.remainingTime = remainingSecs;
+            this.roomTimers.set(roomId, currentTimer);
+            // Emitir actualización
+            (_a = socket_service_1.default.getIO()) === null || _a === void 0 ? void 0 : _a.to(roomId).emit('game:timeUpdate', {
+                timeRemaining: remainingSecs,
+                startTime: currentTimer.startTime,
+                endTime: currentTimer.endTime,
+            });
+            // Si el tiempo llega a cero
+            if (remainingSecs <= 0) {
+                this.stopTimer(roomId);
+                if (currentTimer.callback)
+                    currentTimer.callback();
+            }
+        }, 1000);
+        // Actualizar el timer
+        timer.timerId = newTimerId;
+        timer.isPaused = false;
+        timer.pausedAt = undefined;
+        // Actualizar en el mapa
+        this.roomTimers.set(roomId, timer);
+        // Actualizar el estado del juego
+        this.updateGameStateTime(roomId, timer.remainingTime, timer.duration);
+        console.log(`Timer reanudado para sala ${roomId}. Tiempo restante: ${timer.remainingTime}s`);
+    }
+    // Detener y eliminar un temporizador
+    stopTimer(roomId) {
+        const timer = this.roomTimers.get(roomId);
+        if (!timer)
+            return;
+        // Detener el intervalo
+        clearInterval(timer.timerId);
+        // Eliminar del mapa
+        this.roomTimers.delete(roomId);
+        console.log(`Timer detenido para sala ${roomId}`);
+    }
+    // Obtener información sobre el temporizador de una sala
+    getTimerInfo(roomId) {
+        const timer = this.roomTimers.get(roomId);
+        if (!timer)
+            return null;
+        return {
+            timeRemaining: timer.remainingTime,
+            isPaused: timer.isPaused,
+            totalDuration: timer.duration,
+        };
     }
 }
 // Exportar instancia del servicio

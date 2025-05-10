@@ -3,7 +3,18 @@ import { Server } from 'http';
 import jwt from 'jsonwebtoken';
 import config from '../config';
 import logger from '../utils/logger';
-import gameService from './gameService'; // Asumiendo que gameService puede dar info del estado del juego
+// import gameService from './gameService'; // Comentamos esta línea ya que el módulo no existe
+
+// Enumeración para estados del juego
+export enum GameState {
+  WAITING = 'WAITING',
+  STARTING = 'STARTING',
+  DRAWING = 'DRAWING',
+  GUESSING = 'GUESSING',
+  VOTING = 'VOTING',
+  RESULTS = 'RESULTS',
+  ENDED = 'ENDED',
+}
 
 // Tipos para eventos de socket
 export enum SocketEvent {

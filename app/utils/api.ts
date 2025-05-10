@@ -16,7 +16,7 @@ export const getAuthToken = (): string | null => {
   return null;
 };
 
-// Función para realizar peticiones autenticadas
+// Función para realizar peticiones autenticadas (versión standalone)
 export const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
   const token = getAuthToken();
   
@@ -179,7 +179,8 @@ export const del = async <T = any>(url: string, options: RequestInit = {}): Prom
 export const useApi = () => {
   const { getAuthToken } = useAuth();
   
-  const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
+  // IMPORTANTE: Aquí debemos definir fetchWithAuth como una función dentro del hook
+  const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
     const token = getAuthToken();
     
     const headers = {
@@ -193,10 +194,21 @@ export const useApi = () => {
       headers
     };
     
-    return fetch(url, config);
+    const response = await fetch(url, config);
+    
+    // Manejar respuesta 401 (no autorizado)
+    if (response.status === 401) {
+      // Opcionalmente redirigir a login
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth';
+      }
+    }
+    
+    return response;
   };
   
-  const api = {
+  return {
+    fetchWithAuth,
     get: async <T = any>(url: string, options: RequestInit = {}): Promise<ApiResponse<T>> => {
       try {
         const response = await fetchWithAuth(url, {
@@ -295,7 +307,7 @@ export const useApi = () => {
       }
     },
     
-    delete: async <T = any>(url: string, options: RequestInit = {}): Promise<ApiResponse<T>> => {
+    del: async <T = any>(url: string, options: RequestInit = {}): Promise<ApiResponse<T>> => {
       try {
         const response = await fetchWithAuth(url, {
           ...options,
@@ -327,6 +339,4 @@ export const useApi = () => {
       }
     }
   };
-  
-  return api;
 }; 
