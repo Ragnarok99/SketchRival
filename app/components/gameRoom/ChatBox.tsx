@@ -16,6 +16,99 @@ interface ChatBoxProps {
   roomId: string;
 }
 
+// Mock para simular los eventos de socket en modo desarrollo
+const createMockChatSocket = (user: any, roomId: string) => {
+  // Crear un objeto que simule un socket
+  const mockSocket: any = {
+    emit: (event: string, data: any, callback?: (error?: string, data?: any) => void) => {
+      console.log(`[MOCK CHAT] Emitido evento ${event}:`, data);
+      
+      // Simular comportamiento para room:join
+      if (event === 'room:join') {
+        setTimeout(() => {
+          if (callback) callback();
+        }, 300);
+      }
+      
+      // Simular comportamiento para chat:send
+      if (event === 'chat:send') {
+        setTimeout(() => {
+          // Emitir evento de mensaje recibido
+          const chatMessageHandlers = mockSocket.handlers['chat:message'] || [];
+          chatMessageHandlers.forEach((handler: any) => {
+            handler({
+              senderId: user.userId,
+              senderName: user.username,
+              text: data.text,
+              timestamp: Date.now()
+            });
+          });
+          
+          if (callback) callback();
+        }, 300);
+      }
+    },
+    on: (event: string, handler: any) => {
+      if (!mockSocket.handlers[event]) {
+        mockSocket.handlers[event] = [];
+      }
+      mockSocket.handlers[event].push(handler);
+      return mockSocket;
+    },
+    off: (event: string) => {
+      delete mockSocket.handlers[event];
+      return mockSocket;
+    },
+    disconnect: () => {
+      console.log('[MOCK CHAT] Desconectado');
+      mockSocket.handlers = {};
+    },
+    // Almacenar handlers para simular eventos
+    handlers: {} as Record<string, any[]>
+  };
+  
+  // Simular mensaje de bienvenida
+  setTimeout(() => {
+    const chatMessageHandlers = mockSocket.handlers['chat:message'] || [];
+    chatMessageHandlers.forEach((handler: any) => {
+      handler({
+        senderId: 'system',
+        senderName: 'Sistema',
+        text: '¡Bienvenido a la sala de chat!',
+        timestamp: Date.now()
+      });
+    });
+    
+    // Simular otro mensaje después de 2 segundos
+    setTimeout(() => {
+      const chatMessageHandlers = mockSocket.handlers['chat:message'] || [];
+      chatMessageHandlers.forEach((handler: any) => {
+        handler({
+          senderId: 'mock-player1',
+          senderName: 'Jugador 1',
+          text: '¡Hola a todos! ¿Listos para jugar?',
+          timestamp: Date.now()
+        });
+      });
+    }, 2000);
+    
+    // Simular un mensaje del sistema después de 4 segundos
+    setTimeout(() => {
+      const chatMessageHandlers = mockSocket.handlers['chat:message'] || [];
+      chatMessageHandlers.forEach((handler: any) => {
+        handler({
+          senderId: 'system',
+          senderName: 'Sistema',
+          text: 'El anfitrión puede comenzar el juego cuando todos estén listos.',
+          timestamp: Date.now()
+        });
+      });
+    }, 4000);
+  }, 1000);
+  
+  return mockSocket;
+};
+
 export default function ChatBox({ roomId }: ChatBoxProps) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -27,13 +120,25 @@ export default function ChatBox({ roomId }: ChatBoxProps) {
   useEffect(() => {
     if (!user) return;
     
-    // Inicializar el socket
-    const socketInstance = io(process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001', {
-      auth: {
-        userId: user.userId,
-        username: user.username
+    let socketInstance: Socket | any;
+    
+    // Intenta conectar a un socket real o usar el mock simulado si está en desarrollo
+    try {
+      // Intentar conectar con un socket real
+      if (process.env.NEXT_PUBLIC_SOCKET_URL) {
+        socketInstance = io(process.env.NEXT_PUBLIC_SOCKET_URL, {
+          auth: {
+            userId: user.userId,
+            username: user.username
+          }
+        });
+      } else {
+        throw new Error('No socket URL available');
       }
-    });
+    } catch (error) {
+      console.log('[MOCK] Usando socket simulado para el chat');
+      socketInstance = createMockChatSocket(user, roomId);
+    }
     
     setSocket(socketInstance);
     
@@ -49,7 +154,7 @@ export default function ChatBox({ roomId }: ChatBoxProps) {
     });
     
     // Escuchar mensajes entrantes
-    socketInstance.on('chat:message', (data) => {
+    socketInstance.on('chat:message', (data: any) => {
       const isSystem = data.senderId === 'system';
       
       setMessages(prev => [...prev, {

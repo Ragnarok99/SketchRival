@@ -24,6 +24,218 @@ interface WaitingRoomProps {
   onLeaveRoom: () => void;
 }
 
+// Interfaz para notificaciones
+interface Notification {
+  type: 'info' | 'success' | 'warning' | 'error';
+  message: string;
+}
+
+// Mock para simular los eventos de socket en modo desarrollo
+const createMockSocket = (user: any, roomId: string, onGameStart: () => void) => {
+  // Crear un objeto que simule un socket
+  const mockSocket: any = {
+    emit: (event: string, data: any, callback?: (error?: string, data?: any) => void) => {
+      console.log(`[MOCK SOCKET] Emitido evento ${event}:`, data);
+      
+      // Simular comportamiento para room:join
+      if (event === 'room:join') {
+        setTimeout(() => {
+          if (callback) {
+            callback(undefined, {
+              room: {
+                id: roomId,
+                name: `Sala ${roomId}`,
+                players: [
+                  {
+                    userId: user.userId,
+                    username: user.username,
+                    isReady: false,
+                    role: 'host',
+                    avatarColor: '#3b82f6'
+                  },
+                  {
+                    userId: 'mock-player1',
+                    username: 'Jugador 1',
+                    isReady: false,
+                    role: 'player',
+                    avatarColor: '#10b981'
+                  }
+                ]
+              }
+            });
+          }
+        }, 300);
+      }
+      
+      // Simular comportamiento para room:setReady
+      if (event === 'room:setReady') {
+        const { isReady } = data;
+        setTimeout(() => {
+          // Emitir evento a los handlers registrados
+          const playerReadyHandlers = mockSocket.handlers['room:playerReady'] || [];
+          playerReadyHandlers.forEach((handler: any) => {
+            handler({
+              playerId: user.userId,
+              isReady,
+              room: {
+                players: [
+                  {
+                    userId: user.userId,
+                    username: user.username,
+                    isReady,
+                    role: 'host',
+                    avatarColor: '#3b82f6'
+                  },
+                  {
+                    userId: 'mock-player1',
+                    username: 'Jugador 1',
+                    isReady: false,
+                    role: 'player',
+                    avatarColor: '#10b981'
+                  }
+                ]
+              }
+            });
+          });
+          
+          if (callback) callback();
+        }, 300);
+      }
+      
+      // Simular comportamiento para room:leave
+      if (event === 'room:leave') {
+        console.log('[MOCK SOCKET] Saliendo de la sala');
+        // No hay que hacer nada, solo simulamos el evento
+      }
+    },
+    on: (event: string, handler: any) => {
+      if (!mockSocket.handlers[event]) {
+        mockSocket.handlers[event] = [];
+      }
+      mockSocket.handlers[event].push(handler);
+      return mockSocket;
+    },
+    off: (event: string) => {
+      delete mockSocket.handlers[event];
+      return mockSocket;
+    },
+    disconnect: () => {
+      console.log('[MOCK SOCKET] Desconectado');
+      mockSocket.handlers = {};
+    },
+    // Almacenar handlers para simular eventos
+    handlers: {} as Record<string, any[]>
+  };
+  
+  // Simular unión de un nuevo jugador después de 3 segundos
+  setTimeout(() => {
+    const joinHandlers = mockSocket.handlers['room:playerJoined'] || [];
+    joinHandlers.forEach((handler: any) => {
+      handler({
+        room: {
+          players: [
+            {
+              userId: user.userId,
+              username: user.username,
+              isReady: false,
+              role: 'host',
+              avatarColor: '#3b82f6'
+            },
+            {
+              userId: 'mock-player1',
+              username: 'Jugador 1',
+              isReady: false,
+              role: 'player',
+              avatarColor: '#10b981'
+            },
+            {
+              userId: 'mock-player2',
+              username: 'Jugador 2',
+              isReady: false,
+              role: 'player',
+              avatarColor: '#ef4444'
+            }
+          ]
+        }
+      });
+    });
+    
+    // Simular que el jugador 1 marca como listo después de 5 segundos
+    setTimeout(() => {
+      const readyHandlers = mockSocket.handlers['room:playerReady'] || [];
+      readyHandlers.forEach((handler: any) => {
+        handler({
+          playerId: 'mock-player1',
+          isReady: true,
+          room: {
+            players: [
+              {
+                userId: user.userId,
+                username: user.username,
+                isReady: false,
+                role: 'host',
+                avatarColor: '#3b82f6'
+              },
+              {
+                userId: 'mock-player1',
+                username: 'Jugador 1',
+                isReady: true,
+                role: 'player',
+                avatarColor: '#10b981'
+              },
+              {
+                userId: 'mock-player2',
+                username: 'Jugador 2',
+                isReady: false,
+                role: 'player',
+                avatarColor: '#ef4444'
+              }
+            ]
+          }
+        });
+      });
+      
+      // Simular que el jugador 2 marca como listo después de 8 segundos
+      setTimeout(() => {
+        const readyHandlers = mockSocket.handlers['room:playerReady'] || [];
+        readyHandlers.forEach((handler: any) => {
+          handler({
+            playerId: 'mock-player2',
+            isReady: true,
+            room: {
+              players: [
+                {
+                  userId: user.userId,
+                  username: user.username,
+                  isReady: false,
+                  role: 'host',
+                  avatarColor: '#3b82f6'
+                },
+                {
+                  userId: 'mock-player1',
+                  username: 'Jugador 1',
+                  isReady: true,
+                  role: 'player',
+                  avatarColor: '#10b981'
+                },
+                {
+                  userId: 'mock-player2',
+                  username: 'Jugador 2',
+                  isReady: true,
+                  role: 'player',
+                  avatarColor: '#ef4444'
+                }
+              ]
+            }
+          });
+        });
+      }, 3000);
+    }, 5000);
+  }, 3000);
+  
+  return mockSocket;
+};
+
 export default function WaitingRoom({
   roomId,
   roomName,
@@ -49,7 +261,7 @@ export default function WaitingRoom({
     canStart: false,
   });
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [notification, setNotification] = useState<{type: string, message: string} | null>(null);
+  const [notification, setNotification] = useState<Notification | null>(null);
   
   // Si el jugador actual es el anfitrión
   const isHost = players.find((p: Player) => p.id === user?.userId)?.isHost || false;
@@ -58,13 +270,25 @@ export default function WaitingRoom({
   useEffect(() => {
     if (!user) return;
     
-    // Inicializar socket
-    const socketInstance = io(process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001', {
-      auth: {
-        userId: user.userId,
-        username: user.username
+    let socketInstance: Socket | any;
+    
+    // Intenta conectar a un socket real o usar el mock simulado si está en desarrollo
+    try {
+      // Intentar conectar con un socket real
+      if (process.env.NEXT_PUBLIC_SOCKET_URL) {
+        socketInstance = io(process.env.NEXT_PUBLIC_SOCKET_URL, {
+          auth: {
+            userId: user.userId,
+            username: user.username
+          }
+        });
+      } else {
+        throw new Error('No socket URL available');
       }
-    });
+    } catch (error) {
+      console.log('[MOCK] Usando socket simulado para desarrollo');
+      socketInstance = createMockSocket(user, roomId, onGameStart);
+    }
     
     setSocket(socketInstance);
     
@@ -106,7 +330,7 @@ export default function WaitingRoom({
     // Configurar event listeners
     
     // Cuando un jugador se une
-    socketInstance.on('room:playerJoined', (data) => {
+    socketInstance.on('room:playerJoined', (data: any) => {
       const formattedPlayers = data.room.players.map((player: any) => ({
         id: player.userId,
         username: player.username,
@@ -118,10 +342,21 @@ export default function WaitingRoom({
       
       setPlayers(formattedPlayers);
       calculateReadyStats(formattedPlayers);
+      
+      // Mostrar notificación de jugador unido
+      setNotification({
+        type: 'info',
+        message: `${formattedPlayers.find((p: any) => !players.some((existingP: Player) => existingP.id === p.id))?.username || 'Un jugador'} se ha unido a la sala.`
+      });
+      
+      // Limpiar notificación después de 3 segundos
+      setTimeout(() => {
+        setNotification(null);
+      }, 3000);
     });
     
     // Cuando un jugador abandona la sala
-    socketInstance.on('room:playerLeft', (data) => {
+    socketInstance.on('room:playerLeft', (data: any) => {
       const formattedPlayers = data.room.players.map((player: any) => ({
         id: player.userId,
         username: player.username,
@@ -131,12 +366,28 @@ export default function WaitingRoom({
         avatarColor: player.avatarColor || '#3b82f6',
       }));
       
+      // Encontrar quién se fue
+      const leftPlayer = players.find(p => !formattedPlayers.some((newP: any) => newP.id === p.id));
+      
       setPlayers(formattedPlayers);
       calculateReadyStats(formattedPlayers);
+      
+      // Mostrar notificación de jugador salido
+      if (leftPlayer) {
+        setNotification({
+          type: 'warning',
+          message: `${leftPlayer.username} ha abandonado la sala.`
+        });
+        
+        // Limpiar notificación después de 3 segundos
+        setTimeout(() => {
+          setNotification(null);
+        }, 3000);
+      }
     });
     
     // Cuando un jugador cambia su estado de listo
-    socketInstance.on('room:playerReady', (data) => {
+    socketInstance.on('room:playerReady', (data: any) => {
       const formattedPlayers = data.room.players.map((player: any) => ({
         id: player.userId,
         username: player.username,
@@ -154,10 +405,24 @@ export default function WaitingRoom({
       }
       
       calculateReadyStats(formattedPlayers);
+      
+      // Mostrar notificación de estado cambiado
+      const changedPlayer = formattedPlayers.find((p: any) => p.id === data.playerId);
+      if (changedPlayer && data.playerId !== user.userId) {
+        setNotification({
+          type: data.isReady ? 'success' : 'info',
+          message: `${changedPlayer.username} ${data.isReady ? 'está listo' : 'ya no está listo'}.`
+        });
+        
+        // Limpiar notificación después de 3 segundos
+        setTimeout(() => {
+          setNotification(null);
+        }, 3000);
+      }
     });
     
     // Cuando la sala se actualiza
-    socketInstance.on('room:updated', (data) => {
+    socketInstance.on('room:updated', (data: any) => {
       const formattedPlayers = data.room.players.map((player: any) => ({
         id: player.userId,
         username: player.username,
@@ -173,11 +438,19 @@ export default function WaitingRoom({
     
     // Cuando el juego comienza
     socketInstance.on('room:gameStarted', () => {
-      onGameStart();
+      setNotification({
+        type: 'success',
+        message: '¡El juego ha comenzado!'
+      });
+      
+      // Corto delay antes de iniciar
+      setTimeout(() => {
+        onGameStart();
+      }, 1000);
     });
     
     // Cuando recibimos una notificación
-    socketInstance.on('user:notification', (data) => {
+    socketInstance.on('user:notification', (data: Notification) => {
       setNotification(data);
       
       // Limpiar después de 5 segundos
@@ -205,7 +478,7 @@ export default function WaitingRoom({
         socketInstance.disconnect();
       }
     };
-  }, [roomId, user, accessCode, onGameStart]);
+  }, [roomId, user, accessCode, onGameStart, players]);
   
   // Calcular estadísticas de "listos"
   const calculateReadyStats = (playersList: Player[]) => {
@@ -244,32 +517,57 @@ export default function WaitingRoom({
     try {
       const response = await fetch(`/api/waiting-room/${roomId}/start`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
       });
       
       if (!response.ok) {
         throw new Error('Error al iniciar el juego');
+      }
+      
+      // El juego comenzará cuando recibamos el evento room:gameStarted
+      // Pero para desarrollo, simulamos el evento directamente
+      if (process.env.NODE_ENV === 'development') {
+        // Para el modo mock, simulamos la respuesta
+        socket.emit('room:gameStarted');
+        
+        // Y llamamos directamente al onGameStart después de un delay para simular
+        setTimeout(() => {
+          onGameStart();
+        }, 1000);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido');
     }
   };
   
-  // Expulsar jugador (solo anfitrión)
+  // Expulsar a un jugador (solo anfitrión)
   const kickPlayer = async (playerId: string) => {
-    if (!isHost || playerId === user?.userId) return;
+    if (!isHost || !socket || !user) return;
     
     try {
-      const response = await fetch(`/api/waiting-room/${roomId}/kick`, {
+      const response = await fetch(`/api/waiting-room/${roomId}/kick/${playerId}`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ playerId }),
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
       });
       
       if (!response.ok) {
         throw new Error('Error al expulsar al jugador');
       }
+      
+      // Mostrar notificación de éxito
+      setNotification({
+        type: 'success',
+        message: 'Jugador expulsado correctamente'
+      });
+      
+      // Limpiar después de 3 segundos
+      setTimeout(() => {
+        setNotification(null);
+      }, 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido');
     }
@@ -277,40 +575,29 @@ export default function WaitingRoom({
   
   // Copiar código de acceso
   const handleCopyCode = () => {
-    if (accessCode) {
-      navigator.clipboard.writeText(accessCode)
-        .then(() => {
-          setCopying(true);
-          setTimeout(() => setCopying(false), 2000);
-        })
-        .catch(err => console.error('Error al copiar:', err));
-    }
+    if (!accessCode) return;
+    
+    navigator.clipboard.writeText(accessCode).then(
+      () => {
+        setCopying(true);
+        setTimeout(() => setCopying(false), 2000);
+      },
+      (err) => {
+        console.error('No se pudo copiar el texto:', err);
+      }
+    );
   };
   
-  // Abandona la sala
+  // Función para manejar salida de sala
   const handleLeaveRoom = () => {
-    if (socket && user) {
-      socket.emit('room:leave', {
-        roomId,
-        userId: user.userId
-      });
-    }
-    
     onLeaveRoom();
   };
   
   if (loading) {
     return (
-      <div className="flex justify-center items-center p-8">
-        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-  
-  if (error) {
-    return (
-      <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-        {error}
+      <div className="flex flex-col items-center justify-center p-8 bg-white rounded-lg shadow">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+        <p className="text-gray-600">Cargando sala de espera...</p>
       </div>
     );
   }
@@ -380,20 +667,27 @@ export default function WaitingRoom({
           {players.length === 0 ? (
             <p className="text-gray-500 text-center py-4">No hay jugadores en la sala</p>
           ) : (
-            <ul className="divide-y">
+            <ul className="divide-y divide-gray-200">
               {players.map((player) => (
                 <li key={player.id} className="py-3 flex items-center justify-between">
                   <div className="flex items-center">
+                    {/* Avatar (círculo de color) */}
                     <div 
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-white"
+                      className="w-8 h-8 rounded-full flex items-center justify-center mr-3"
                       style={{ backgroundColor: player.avatarColor }}
                     >
-                      {player.username.charAt(0).toUpperCase()}
+                      <span className="text-white text-sm font-medium">
+                        {player.username.charAt(0).toUpperCase()}
+                      </span>
                     </div>
-                    <div className="ml-3">
-                      <p className="font-medium">{player.username}</p>
+                    
+                    {/* Nombre de usuario */}
+                    <div>
+                      <span className="font-medium">{player.username}</span>
                       {player.isHost && (
-                        <span className="text-xs text-gray-500">Anfitrión</span>
+                        <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                          Anfitrión
+                        </span>
                       )}
                     </div>
                   </div>

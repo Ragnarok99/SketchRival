@@ -2,12 +2,14 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useApi } from '../../utils/api';
 
 export default function JoinPrivateRoomForm() {
   const [accessCode, setAccessCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const { fetchWithAuth } = useApi();
 
   // Función para normalizar el código (mayúsculas, sin espacios)
   const normalizeCode = (code: string) => {
@@ -34,8 +36,8 @@ export default function JoinPrivateRoomForm() {
       setLoading(true);
       setError(null);
 
-      // Buscar la sala con ese código
-      const response = await fetch(`/api/private/access/${normalizedCode}`);
+      // Buscar la sala con ese código usando fetchWithAuth
+      const response = await fetchWithAuth(`/api/private/access/${normalizedCode}`);
       
       if (!response.ok) {
         const data = await response.json();

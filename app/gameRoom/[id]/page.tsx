@@ -1,140 +1,95 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '../../auth/AuthContext'; // Suponiendo que hay un contexto de autenticación
-import WaitingRoom from '../../components/gameRoom/WaitingRoom';
+import { useAuth } from '../../auth/AuthContext';
+import { GameStateProvider } from '../../contexts/GameStateContext';
+import GameContainer from '../../components/gameRoom/GameContainer';
+import * as api from '../../utils/api';
 
-// Tipos
-type GameRoomStatus = 'waiting' | 'playing' | 'finished' | 'closed';
-type GameRoomType = 'public' | 'private';
-
-interface GameRoomConfig {
-  maxPlayers: number;
-  timeLimit?: number;
-  categories?: string[];
-  difficulty?: string;
+interface GameRoomPageProps {
+  params: {
+    id: string;
+  };
 }
 
-interface Player {
-  id: string;
-  username: string;
-  isReady: boolean;
-  isHost: boolean;
-  joinedAt: string;
-}
-
-interface GameRoom {
-  id: string;
-  name: string;
-  hostId: string;
-  type: GameRoomType;
-  status: GameRoomStatus;
-  players: Player[];
-  configuration: GameRoomConfig;
-  accessCode?: string;
-  createdAt: string;
-}
-
-export default function GameRoomDetail({ params }: { params: { id: string } }) {
+export default function GameRoomPage({ params }: GameRoomPageProps) {
+  const { id } = params;
   const router = useRouter();
-  const { user, isAuthenticated } = useAuth(); // Suponiendo que hay un contexto de autenticación
-  
-  const [room, setRoom] = useState<GameRoom | null>(null);
+  const { user, isAuthenticated } = useAuth();
+  const [room, setRoom] = useState<{
+    id: string;
+    name: string;
+    isPrivate: boolean;
+    accessCode?: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [gameStarted, setGameStarted] = useState(false);
-  
-  // Redirigir a login si no está autenticado
+
+  // Redireccionar si no está autenticado
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/auth');
+    if (!isAuthenticated && !loading) {
+      router.push('/auth/login?redirect=' + encodeURIComponent(`/gameRoom/${id}`));
     }
-  }, [isAuthenticated, router]);
-  
-  // Cargar datos de la sala
+  }, [isAuthenticated, router, id, loading]);
+
+  // Cargar detalles de la sala
   useEffect(() => {
-    const fetchRoomDetails = async () => {
+    if (!isAuthenticated || !user) return;
+
+    const fetchRoom = async () => {
       try {
         setLoading(true);
+        const response = await api.get(`/api/rooms/${id}`);
         
-        // Obtener detalles de la sala
-        const response = await fetch(`/api/rooms/${params.id}`);
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || 'Error al cargar los datos de la sala');
+        if (response.success) {
+          setRoom({
+            id: response.data.id,
+            name: response.data.name,
+            isPrivate: response.data.isPrivate,
+            accessCode: response.data.accessCode,
+          });
+        } else {
+          setError(response.message || 'No se pudo cargar la sala');
         }
-        
-        const data = await response.json();
-        setRoom(data.room);
-        
-        // Si la sala ya está en juego, actualizar estado
-        if (data.room.status === 'playing') {
-          setGameStarted(true);
-        }
-        
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error desconocido');
-        setRoom(null);
+      } catch (err: any) {
+        console.error('Error al cargar la sala:', err);
+        setError(err.message || 'Error al cargar la sala');
       } finally {
         setLoading(false);
       }
     };
-    
-    fetchRoomDetails();
-    
-    // Actualizar cada 5 segundos (se reemplazará con WebSockets)
-    const intervalId = setInterval(fetchRoomDetails, 5000);
-    
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [params.id]);
-  
-  // Manejar inicio de juego
-  const handleGameStart = () => {
-    setGameStarted(true);
-    // Aquí se realizaría la redirección a la página de juego o cambio de estado
-    // Por ahora, solo actualizamos el estado local
+
+    fetchRoom();
+  }, [id, isAuthenticated, user]);
+
+  // Manejar salida de la sala
+  const handleLeaveRoom = () => {
+    router.push('/gameRoom');
   };
-  
-  // Abandonar sala
-  const handleLeaveRoom = async () => {
-    try {
-      await fetch(`/api/rooms/${params.id}/leave`, {
-        method: 'POST',
-      });
-      
-      router.push('/gameRoom');
-    } catch (err) {
-      console.error('Error al abandonar la sala:', err);
-      setError('Error al abandonar la sala');
-    }
-  };
-  
-  if (!isAuthenticated) {
-    return <div className="flex justify-center items-center min-h-screen">Redirigiendo al login...</div>;
-  }
-  
+
+  // Renderizar pantalla de carga
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-        <p className="text-gray-600">Cargando sala...</p>
+      <div className="flex justify-center items-center h-[calc(100vh-64px)]">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
       </div>
     );
   }
-  
+
+  // Renderizar pantalla de error
   if (error || !room) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-xl mx-auto bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-          <p className="font-medium">{error || 'No se pudo cargar la sala'}</p>
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] p-4">
+        <div className="p-8 bg-white rounded-lg shadow-md max-w-md w-full text-center">
+          <svg className="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Error</h2>
+          <p className="text-red-600 mb-4">{error || 'No se pudo encontrar la sala'}</p>
           <button
             onClick={() => router.push('/gameRoom')}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
           >
             Volver a la lista de salas
           </button>
@@ -142,60 +97,19 @@ export default function GameRoomDetail({ params }: { params: { id: string } }) {
       </div>
     );
   }
-  
+
+  // Renderizar sala de juego con el provider de estado
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="mb-6 flex items-center">
-        <button 
-          onClick={() => router.push('/gameRoom')}
-          className="text-blue-600 hover:text-blue-800 mr-4"
-        >
-          &larr; Volver
-        </button>
-      </div>
-      
-      {room.status === 'waiting' ? (
-        // Mostrar sala de espera
-        <WaitingRoom
+    <div className="container mx-auto py-6 px-4">
+      <GameStateProvider roomId={room.id}>
+        <GameContainer
           roomId={room.id}
           roomName={room.name}
-          isPrivate={room.type === 'private'}
+          isPrivate={room.isPrivate}
           accessCode={room.accessCode}
-          onGameStart={handleGameStart}
           onLeaveRoom={handleLeaveRoom}
         />
-      ) : room.status === 'playing' ? (
-        // Mostrar pantalla de juego en progreso
-        <div className="bg-white rounded-lg shadow-md p-8 text-center">
-          <h2 className="text-2xl font-bold mb-4">¡Juego en progreso!</h2>
-          <p className="mb-6">El juego ya ha comenzado en esta sala.</p>
-          
-          {/* Aquí se implementará la interfaz de juego en la tarea correspondiente */}
-          <p className="text-gray-500">
-            Implementación del juego en desarrollo...
-          </p>
-          
-          <button
-            onClick={handleLeaveRoom}
-            className="mt-6 px-6 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg"
-          >
-            Abandonar juego
-          </button>
-        </div>
-      ) : (
-        // Mostrar sala cerrada o finalizada
-        <div className="bg-white rounded-lg shadow-md p-8 text-center">
-          <h2 className="text-2xl font-bold mb-4">Sala {room.status === 'finished' ? 'Finalizada' : 'Cerrada'}</h2>
-          <p className="mb-6">Esta sala de juego ya no está disponible.</p>
-          
-          <button
-            onClick={() => router.push('/gameRoom')}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-          >
-            Volver a la lista de salas
-          </button>
-        </div>
-      )}
+      </GameStateProvider>
     </div>
   );
 } 
