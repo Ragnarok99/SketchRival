@@ -242,6 +242,7 @@ export default function useSocket(options: UseSocketOptions = {}) {
         return false;
       }
 
+      console.log('[useSocket] Emitting event:', event, 'Data:', data, 'Socket connected:', socket?.connected);
       socket.emit(event, data, callback);
       return true;
     },

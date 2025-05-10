@@ -446,29 +446,45 @@ class SocketService {
         });
         // Manejar solicitud de estado del juego
         socket.on(SocketEvent.GAME_GET_STATE, (data, callback) => __awaiter(this, void 0, void 0, function* () {
+            console.log('[SocketService] game:getState RECIBIDO con data:', data);
             try {
-                const { roomId } = data;
-                if (!roomId) {
-                    logger_1.default.warn('game:getState llamado sin roomId');
-                    return callback({ message: 'Room ID is required for game:getState' }, null);
-                }
+                const { roomId, gameId } = data;
                 const client = this.clients.get(socket.id);
-                logger_1.default.info(`User ${(client === null || client === void 0 ? void 0 : client.username) || 'Unknown'} (${socket.id}) requested game state for room ${roomId}`);
-                const gameState = yield gameState_service_1.default.getGameState(roomId);
-                if (!gameState) {
-                    logger_1.default.warn(`No game state found by gameStateMachineService for room ${roomId}. Returning null.`);
-                    // Es posible que la sala exista pero el juego aún no haya comenzado formalmente (sin estado en la máquina).
-                    // El cliente debería poder manejar un estado nulo o un estado inicial por defecto.
-                    return callback(null, null);
+                if (!client) {
+                    logger_1.default.warn('game:getState called by unknown client');
+                    return callback === null || callback === void 0 ? void 0 : callback({ success: false, error: 'Unknown client' });
                 }
-                // Opcional: Actualizar cache interna si gameStateMachineService tiene el estado más reciente.
-                // this.updateRoomState(roomId, gameState);
-                logger_1.default.info(`Returning game state for room ${roomId} to ${(client === null || client === void 0 ? void 0 : client.username) || 'Unknown'}`);
-                callback(null, gameState);
+                if (!roomId && !gameId) {
+                    logger_1.default.warn(`game:getState called without roomId or gameId by user ${client.username} (ID: ${client.userId})`);
+                    return callback === null || callback === void 0 ? void 0 : callback({
+                        success: false,
+                        error: 'Room ID or Game ID is required for game:getState',
+                        code: 'GET_STATE_ERROR',
+                    });
+                }
+                // Si solo se provee gameId, intentar obtener roomId (esto es un ejemplo, la lógica real puede variar)
+                // const actualRoomId = roomId || await this.getRoomIdFromGameId(gameId);
+                const actualRoomId = roomId; // Por ahora, usamos el roomId si está presente
+                if (!actualRoomId) {
+                    logger_1.default.warn(`game:getState unable to determine roomId from data: ${JSON.stringify(data)}`);
+                    return callback === null || callback === void 0 ? void 0 : callback({
+                        success: false,
+                        error: 'Could not determine Room ID for game:getState',
+                        code: 'GET_STATE_NO_ROOM_ID',
+                    });
+                }
+                logger_1.default.info(`User ${client.username} (${socket.id}) requested game state for room ${actualRoomId}`);
+                const gameState = yield gameState_service_1.default.getGameState(actualRoomId);
+                if (!gameState) {
+                    logger_1.default.warn(`No game state found by gameStateMachineService for room ${actualRoomId}. Returning null.`);
+                    return callback === null || callback === void 0 ? void 0 : callback(null, null); // Devolver null para error y estado si no se encuentra el estado
+                }
+                logger_1.default.info(`Returning game state for room ${actualRoomId} to ${client.username}`);
+                callback === null || callback === void 0 ? void 0 : callback(null, gameState); // Devolver null para error y el estado del juego
             }
             catch (error) {
-                logger_1.default.error(`Error in game:getState for room ${data === null || data === void 0 ? void 0 : data.roomId}:`, error);
-                callback({ message: error.message || 'Failed to get game state from server' }, null);
+                logger_1.default.error(`Error in game:getState for data ${JSON.stringify(data)}:`, error);
+                callback === null || callback === void 0 ? void 0 : callback({ message: error.message || 'Failed to get game state from server' }, null);
             }
         }));
     }

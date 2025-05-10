@@ -5,108 +5,105 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../auth/AuthContext';
 import { GameStateProvider } from '../../contexts/GameStateContext';
 import GameContainer from '../../components/gameRoom/GameContainer';
-import * as api from '../../utils/api';
 
-interface GameRoomClientProps {
-  roomId: string;
+// Interfaces
+interface Room {
+  id: string;
+  name: string;
+  isPrivate: boolean;
+  accessCode?: string;
+  // Añadir otros campos que pueda tener Room según tu aplicación
 }
 
-export default function GameRoomClient({ roomId }: GameRoomClientProps) {
+export default function GameRoomClient({ params }: { params: { id: string } }) {
+  const { isAuthenticated, user } = useAuth();
   const router = useRouter();
-  const { user, isAuthenticated } = useAuth();
-  const [room, setRoom] = useState<{
-    id: string;
-    name: string;
-    isPrivate: boolean;
-    accessCode?: string;
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
+  
+  // Obtener roomId directamente de params.id
+  const roomId = params.id;
+  
+  const [roomData, setRoomData] = useState<Room | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  // Redireccionar si no está autenticado
-  useEffect(() => {
-    if (!isAuthenticated && !loading) {
-      router.push('/auth/login?redirect=' + encodeURIComponent(`/gameRoom/${roomId}`));
-    }
-  }, [isAuthenticated, router, roomId, loading]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Cargar detalles de la sala
   useEffect(() => {
     if (!isAuthenticated || !user) return;
 
-    const fetchRoom = async () => {
+    console.log('[GameRoomClient] Cargando detalles para roomId:', roomId);
+    
+    // Solicitar datos de la sala
+    const fetchRoomData = async () => {
       try {
-        setLoading(true);
-        const response = await api.get(`/api/rooms/${roomId}`);
+        const response = await fetch(`/api/rooms/${roomId}`);
         
-        if (response.success) {
-          setRoom({
-            id: response.data.id,
-            name: response.data.name,
-            isPrivate: response.data.isPrivate,
-            accessCode: response.data.accessCode,
-          });
-        } else {
-          setError(response.message || 'No se pudo cargar la sala');
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || 'Error al cargar la sala');
         }
-      } catch (err: any) {
-        console.error('Error al cargar la sala:', err);
-        setError(err.message || 'Error al cargar la sala');
+        
+        const data = await response.json();
+        console.log('[GameRoomClient] Datos de sala recibidos:', data);
+        setRoomData(data);
+      } catch (err) {
+        console.error('Error cargando sala:', err);
+        setError(err instanceof Error ? err.message : 'Error desconocido');
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
+    
+    fetchRoomData();
+  }, [isAuthenticated, user, roomId, router]);
 
-    fetchRoom();
-  }, [roomId, isAuthenticated, user]);
-
-  // Manejar salida de la sala
-  const handleLeaveRoom = () => {
-    router.push('/gameRoom');
-  };
-
-  // Renderizar pantalla de carga
-  if (loading) {
+  // Manejar caso de carga
+  if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-[calc(100vh-64px)]">
+      <div className="flex justify-center items-center h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        <span className="ml-3">Cargando sala de juego...</span>
       </div>
     );
   }
 
-  // Renderizar pantalla de error
-  if (error || !room) {
+  // Manejar errores
+  if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] p-4">
-        <div className="p-8 bg-white rounded-lg shadow-md max-w-md w-full text-center">
-          <svg className="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">Error</h2>
-          <p className="text-red-600 mb-4">{error || 'No se pudo encontrar la sala'}</p>
-          <button
-            onClick={() => router.push('/gameRoom')}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-          >
-            Volver a la lista de salas
-          </button>
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4 max-w-md">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-700">
+                {error}
+              </p>
+            </div>
+          </div>
         </div>
+        <button 
+          className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition-colors"
+          onClick={() => router.push('/gameRoom')}
+        >
+          Volver al Lobby
+        </button>
       </div>
     );
   }
 
-  // Renderizar sala de juego con el provider de estado
+  // Renderizar la sala
   return (
-    <div className="container mx-auto py-6 px-4">
-      <GameStateProvider roomId={room.id}>
-        <GameContainer
-          roomId={room.id}
-          roomName={room.name}
-          isPrivate={room.isPrivate}
-          accessCode={room.accessCode}
-          onLeaveRoom={handleLeaveRoom}
-        />
-      </GameStateProvider>
-    </div>
+    <GameStateProvider roomId={roomId}>
+      <GameContainer 
+        roomId={roomId} 
+        roomName={roomData?.name || 'Sala de juego'} 
+        isPrivate={roomData?.isPrivate || false} 
+        accessCode={roomData?.accessCode} 
+        onLeaveRoom={() => router.push('/gameRoom')} 
+      />
+    </GameStateProvider>
   );
 } 

@@ -175,6 +175,7 @@ interface GameStateProviderProps {
 
 // Proveedor del contexto
 export function GameStateProvider({ roomId, children }: GameStateProviderProps) {
+  console.log('[GameStateProvider] Renderizando con roomId:', roomId);
   const [state, dispatch] = useReducer(gameStateReducer, { ...initialState, roomId });
   const [isLoading, setIsLoading] = useState(true);
   const { socket, connectionState, emit, on } = useSocket();
@@ -206,6 +207,13 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
   }, [dispatch]);
 
   useEffect(() => {
+    // PRIMERO, ASEGURARSE DE QUE TENEMOS UN roomId VÁLIDO
+    if (!roomId) { // Si roomId es undefined, null, o una cadena vacía
+      console.log('[GameStateContext] useEffect: roomId no está definido aún. Saliendo.');
+      setIsLoading(false); // Podríamos querer poner isLoading a false si no hay roomId
+      return; 
+    }
+
     if (!socket || connectionState !== SocketConnectionState.CONNECTED || !user) {
       console.log('[GameStateContext] useEffect: Socket no listo o usuario no autenticado. Saliendo.');
       if (isLoading) setIsLoading(false); // Si estábamos cargando y no hay socket, dejar de cargar.
@@ -215,6 +223,7 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
     console.log('[GameStateContext] useEffect: Socket listo y usuario autenticado. Estableciendo isLoading a true y emitiendo game:getState');
     setIsLoading(true);
 
+    console.log('[GameStateContext] Emitiendo game:getState con roomId:', roomId);
     emit('game:getState', { roomId }, (error: any, data: any) => {
       console.log('[GameStateContext] game:getState CALLBACK EJECUTADO');
       if (error) {
