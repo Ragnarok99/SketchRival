@@ -52,3 +52,12 @@ export const protectRoute = async (req: Request, res: Response, next: NextFuncti
 
 // Alias para mantener compatibilidad con código existente
 export const protect = protectRoute;
+
+// Middleware para verificar si el usuario es administrador
+export const adminOnly = (req: IRequestWithUser, res: Response, next: NextFunction) => {
+  if (req.user && req.user.isAdmin) {
+    next();
+  } else {
+    res.status(403).send({ message: 'Acceso denegado. Se requiere rol de administrador.' });
+  }
+};

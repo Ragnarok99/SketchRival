@@ -28,8 +28,11 @@ const roomConfig_routes_1 = __importDefault(require("./routes/roomConfig.routes"
 const privateRooms_routes_1 = __importDefault(require("./routes/privateRooms.routes"));
 const stats_routes_1 = __importDefault(require("./routes/stats.routes"));
 const words_routes_1 = __importDefault(require("./routes/words.routes"));
+const leaderboard_routes_1 = __importDefault(require("./routes/leaderboard.routes"));
+const season_routes_1 = __importDefault(require("./routes/season.routes"));
 // Importar servicios
 const email_service_1 = require("./services/email.service");
+const openAIService_1 = __importDefault(require("./services/openAIService"));
 // Cargar variables de entorno
 dotenv_1.default.config();
 // Crear aplicación Express
@@ -55,6 +58,8 @@ app.use('/api/configs', roomConfig_routes_1.default);
 app.use('/api/private', privateRooms_routes_1.default);
 app.use('/api/stats', stats_routes_1.default);
 app.use('/api/words', words_routes_1.default);
+app.use('/api/leaderboard', leaderboard_routes_1.default);
+app.use('/api/seasons', season_routes_1.default);
 // Crear servidor HTTP
 const server = http_1.default.createServer(app);
 // Inicializar Socket.IO
@@ -80,9 +85,14 @@ const startServer = () => __awaiter(void 0, void 0, void 0, function* () {
         try {
             // Inicializar categorías de palabras y recompensas
             console.log('Initializing default data...');
+            // Aquí podrías inicializar datos por defecto si es necesario
+            // await initializeDefaultWordCategories();
+            // await initializeDefaultRewards();
+            // Probar conexión con OpenAI
+            yield openAIService_1.default.testConnection();
         }
         catch (error) {
-            console.error('Error initializing default data:', error);
+            console.error('Error initializing default data or OpenAI service:', error);
         }
         // Iniciar el servidor
         server.listen(PORT, () => {

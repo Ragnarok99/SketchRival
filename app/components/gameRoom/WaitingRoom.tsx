@@ -727,7 +727,7 @@ export default function WaitingRoom({
         </div>
         
         {/* Chat de la sala */}
-        <div className="md:col-span-1">
+        <div className="md:col-span-1 flex flex-col">
           <ChatBox roomId={roomId} />
         </div>
       </div>

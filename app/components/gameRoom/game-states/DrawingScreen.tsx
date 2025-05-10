@@ -30,24 +30,68 @@ export default function DrawingScreen({ isPaused = false }: DrawingScreenProps) 
   // Tamaños de pincel
   const brushSizes = [2, 5, 10, 15, 20];
   
-  // Inicializar canvas
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    
+  // Función para ajustar el tamaño del canvas
+  const resizeCanvas = () => {
+    if (!canvasRef.current || !ctx) return;
     const canvas = canvasRef.current;
-    const context = canvas.getContext('2d');
+    // Guardar el contenido actual si es posible y se desea
+    // const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     
-    // Ajustar tamaño del canvas
     canvas.width = canvas.offsetWidth;
     canvas.height = canvas.offsetHeight;
     
-    // Establecer fondo blanco
+    // Restablecer propiedades del contexto que se pierden al redimensionar
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = currentColor; // Asumiendo que currentColor es el deseado
+    ctx.lineWidth = brushSize; // Asumiendo que brushSize es el deseado
+    ctx.fillStyle = '#ffffff'; // Restablecer fondo blanco
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Si se guardó la imagen, redibujarla:
+    // if (imageData) ctx.putImageData(imageData, 0, 0);
+    // Nota: Redibujar puede ser imperfecto o perder calidad. 
+    // Una mejor solución sería re-ejecutar todos los trazos guardados.
+    // Por simplicidad aquí, solo limpiamos y restablecemos el fondo.
+  };
+
+  // Inicializar y reajustar canvas al cambiar tamaño de ventana
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+    
     if (context) {
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, canvas.width, canvas.height);
       setCtx(context);
+      // Establecer propiedades iniciales del contexto aquí también si es necesario
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.offsetWidth, canvas.offsetHeight); // Usar offsetWidth/Height para el primer pintado
     }
-  }, []);
+
+    // Llamada inicial para ajustar tamaño
+    // Necesitamos un pequeño delay o asegurar que el layout esté estable
+    // para que offsetWidth/offsetHeight sean correctos.
+    // Por ahora, asumimos que el layout inicial es estable.
+    // resizeCanvas(); // Se llama implícitamente por la configuración inicial de ctx y el useEffect de abajo.
+
+    window.addEventListener('resize', resizeCanvas);
+    return () => {
+      window.removeEventListener('resize', resizeCanvas);
+    };
+  }, []); // Solo corre una vez para setear el contexto y el listener
+
+  // Efecto separado para llamar a resizeCanvas cuando ctx está disponible y cambian las dimensiones del contenedor
+  // Esto es un poco más complejo de hacer correctamente solo con useEffect y offsetWidth/Height
+  // ya que offsetWidth/Height no disparan re-renders por sí mismos.
+  // El listener de 'resize' es la forma más robusta.
+  // Asegurarse que resizeCanvas se llama después de que el layout inicial esté establecido.
+  useEffect(() => {
+    // Esta llamada asegura que el canvas tome las dimensiones correctas después del primer render
+    // y el establecimiento del contexto.
+    if (ctx) {
+        const timeoutId = setTimeout(resizeCanvas, 50); // Pequeño delay para asegurar que el DOM está estable
+        return () => clearTimeout(timeoutId);
+    }
+  }, [ctx]); // Se ejecuta cuando ctx se establece
   
   // Eventos de dibujo
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {

@@ -201,7 +201,7 @@ export default function ChatBox({ roomId }: ChatBoxProps) {
   };
   
   return (
-    <div className="flex flex-col h-64 sm:h-80 bg-white rounded-lg border border-gray-200 shadow">
+    <div className="flex flex-col bg-white rounded-lg border border-gray-200 shadow flex-1 min-h-[16rem] sm:min-h-[20rem]">
       <div className="p-3 border-b border-gray-200">
         <h3 className="text-sm font-semibold">Chat de la sala</h3>
       </div>

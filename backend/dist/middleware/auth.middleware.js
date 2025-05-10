@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.protect = exports.protectRoute = void 0;
+exports.adminOnly = exports.protect = exports.protectRoute = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const database_1 = require("../config/database");
 const User_model_1 = require("../models/User.model");
@@ -45,3 +45,13 @@ const protectRoute = (req, res, next) => __awaiter(void 0, void 0, void 0, funct
 exports.protectRoute = protectRoute;
 // Alias para mantener compatibilidad con código existente
 exports.protect = exports.protectRoute;
+// Middleware para verificar si el usuario es administrador
+const adminOnly = (req, res, next) => {
+    if (req.user && req.user.isAdmin) {
+        next();
+    }
+    else {
+        res.status(403).send({ message: 'Acceso denegado. Se requiere rol de administrador.' });
+    }
+};
+exports.adminOnly = adminOnly;

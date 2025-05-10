@@ -3,6 +3,7 @@
 import React from 'react';
 import { useGameState } from '../../../contexts/GameStateContext';
 import confetti from 'canvas-confetti';
+import DrawingGallery from '../DrawingGallery';
 
 interface GameEndScreenProps {
   onLeaveRoom: () => void;
@@ -211,6 +212,9 @@ export default function GameEndScreen({ onLeaveRoom }: GameEndScreenProps) {
           <p className="text-xs text-gray-600">Precisión</p>
         </div>
       </div>
+      
+      {/* Galería de Dibujos */}
+      <DrawingGallery drawings={state.drawings} players={state.players} />
       
       {/* Botón para volver a la sala de espera */}
       <button

@@ -107,12 +107,22 @@ export default function RoundEndScreen() {
         </div>
         
         {currentDrawing && (
-          <div className="w-full bg-white border border-gray-200 rounded-lg overflow-hidden" style={{ height: '200px' }}>
+          <div className="w-full bg-white border border-gray-200 rounded-lg overflow-hidden mb-2" style={{ height: '200px' }}>
             <img 
               src={currentDrawing.imageData} 
               alt={`Dibujo de ${state.currentWord}`} 
               className="w-full h-full object-contain"
             />
+          </div>
+        )}
+
+        {state.currentRoundIaEvaluation && (
+          <div className="mt-2 pt-2 border-t border-gray-200">
+            <p className="text-xs text-gray-700 font-semibold">Opinión de la IA:</p>
+            <p className={`text-xs ${state.currentRoundIaEvaluation.isCorrect ? 'text-green-600' : 'text-red-600'}`}>
+              {state.currentRoundIaEvaluation.isCorrect ? 'Correcto' : 'Incorrecto'}: {" "}
+              <span className="text-gray-600 italic">{state.currentRoundIaEvaluation.justification}</span>
+            </p>
           </div>
         )}
       </div>

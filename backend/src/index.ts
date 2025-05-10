@@ -15,9 +15,12 @@ import roomConfigRoutes from './routes/roomConfig.routes';
 import privateRoomsRoutes from './routes/privateRooms.routes';
 import statsRoutes from './routes/stats.routes';
 import wordsRoutes from './routes/words.routes';
+import leaderboardRoutes from './routes/leaderboard.routes';
+import seasonRoutes from './routes/season.routes';
 
 // Importar servicios
 import { initializeEmailService } from './services/email.service';
+import openAIService from './services/openAIService';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -50,6 +53,8 @@ app.use('/api/configs', roomConfigRoutes);
 app.use('/api/private', privateRoomsRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/words', wordsRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/seasons', seasonRoutes);
 
 // Crear servidor HTTP
 const server = http.createServer(app);
@@ -80,8 +85,14 @@ const startServer = async () => {
     try {
       // Inicializar categorías de palabras y recompensas
       console.log('Initializing default data...');
+      // Aquí podrías inicializar datos por defecto si es necesario
+      // await initializeDefaultWordCategories();
+      // await initializeDefaultRewards();
+
+      // Probar conexión con OpenAI
+      await openAIService.testConnection();
     } catch (error) {
-      console.error('Error initializing default data:', error);
+      console.error('Error initializing default data or OpenAI service:', error);
     }
 
     // Iniciar el servidor

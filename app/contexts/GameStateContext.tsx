@@ -73,12 +73,22 @@ export interface GameStateData {
   scores: Record<string, number>;
   drawings: Drawing[];
   guesses: Guess[];
+  currentRoundIaEvaluation?: {
+    isCorrect: boolean;
+    justification: string;
+  };
   startedAt?: Date;
   lastUpdated: Date;
   error?: {
     message: string;
     code: string;
   };
+  toastNotification?: {
+    id: string;
+    type: 'info' | 'success' | 'warning' | 'error';
+    message: string;
+    duration?: number;
+  } | null;
   currentPlayerIndex: number;
 }
 
@@ -105,6 +115,8 @@ const initialState: GameStateData = {
   scores: {},
   drawings: [],
   guesses: [],
+  currentRoundIaEvaluation: undefined,
+  toastNotification: null,
   lastUpdated: new Date(),
   currentPlayerIndex: 0,
   wordOptions: [],
