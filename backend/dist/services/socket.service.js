@@ -272,30 +272,80 @@ class SocketService {
     }
     // Configurar eventos relacionados con chat
     setupChatEvents(socket) {
-        // Enviar mensaje
-        socket.on(SocketEvent.CHAT_SEND, (data, callback) => {
-            var _a;
+        socket.on(SocketEvent.CHAT_SEND, (data, callback) => __awaiter(this, void 0, void 0, function* () {
             try {
                 const { roomId, text } = data;
                 const client = this.clients.get(socket.id);
-                if (!client || !roomId || !text) {
-                    return callback === null || callback === void 0 ? void 0 : callback('Invalid request');
+                if (!client || !roomId || !text || !this.io) {
+                    return callback === null || callback === void 0 ? void 0 : callback('Invalid request or service not ready');
                 }
+                // Obtener estado actual del juego para la sala (esto es una simplificación)
+                // En una implementación real, gameService.getRoomState(roomId) devolvería el estado.
+                // Aquí simularemos que podemos acceder a ello.
+                // const currentGameState = await gameService.getRoomState(roomId);
+                // const { currentState, currentDrawerId, currentWord } = currentGameState || {};
+                // ---- INICIO DE SIMULACIÓN DE ESTADO DE JUEGO ----
+                // Esto debería reemplazarse con una llamada real al servicio de estado del juego
+                // o accediendo a datos de la sala que ya gestiona socketService si los tiene.
+                // Para este ejemplo, asumimos que estos datos están disponibles mágicamente aquí.
+                // Esta es una dependencia GRANDE que necesitaría ser resuelta para una funcionalidad real.
+                let DEBUG_MOCK_GAME_STATE = 'GUESSING'; // o 'DRAWING'
+                let DEBUG_MOCK_DRAWER_ID = 'mock-drawer-id'; // ID del dibujante actual
+                let DEBUG_MOCK_CURRENT_WORD = 'manzana'; // Palabra a adivinar
+                // Si roomId es específico, podríamos hardcodear diferentes estados para prueba.
+                if (roomId === 'testRoomWithDrawingState') {
+                    DEBUG_MOCK_GAME_STATE = 'DRAWING';
+                    DEBUG_MOCK_DRAWER_ID = client.userId === 'drawerUser' ? 'otherUser' : 'drawerUser'; // Simular ser o no el dibujante
+                    DEBUG_MOCK_CURRENT_WORD = 'casa';
+                }
+                const currentState = DEBUG_MOCK_GAME_STATE; // Forzar tipo para el ejemplo
+                const currentDrawerId = DEBUG_MOCK_DRAWER_ID;
+                const currentWord = DEBUG_MOCK_CURRENT_WORD;
+                // ---- FIN DE SIMULACIÓN DE ESTADO DE JUEGO ----
+                const isGuessingPhase = currentState === GameState.GUESSING || currentState === GameState.DRAWING;
+                const senderIsDrawer = client.userId === currentDrawerId;
+                if (isGuessingPhase && !senderIsDrawer && currentWord) {
+                    // Es fase de adivinanza y el que envía no es el dibujante
+                    const guessNormalized = text.trim().toLowerCase();
+                    const wordNormalized = currentWord.trim().toLowerCase();
+                    if (guessNormalized === wordNormalized) {
+                        // ¡Adivinanza correcta!
+                        // TODO: Notificar al jugador que adivinó, actualizar puntos, etc.
+                        // gameService.handleCorrectGuess(roomId, client.userId, text);
+                        this.io.to(roomId).emit(SocketEvent.CHAT_MESSAGE, {
+                            senderId: 'system',
+                            senderName: 'Sistema',
+                            text: `${client.username} ha adivinado la palabra!`,
+                            timestamp: Date.now(),
+                            isSystem: true,
+                        });
+                        // Podríamos no enviar el mensaje original al chat para no revelar la palabra
+                        return callback === null || callback === void 0 ? void 0 : callback(); // Termina aquí, no retransmite la palabra correcta al chat
+                    }
+                }
+                // Si es el dibujante durante la fase de adivinanza/dibujo, no permitir chat (o filtrar)
+                if (isGuessingPhase && senderIsDrawer) {
+                    // Opcional: enviar un mensaje de error/aviso solo al dibujante
+                    // socket.emit('user:notification', { type: 'error', message: 'No puedes chatear mientras dibujas.'});
+                    console.log(`User ${client.username} (drawer) tried to chat during drawing/guessing phase. Message blocked: ${text}`);
+                    return callback === null || callback === void 0 ? void 0 : callback('Los dibujantes no pueden chatear durante la ronda de dibujo.');
+                }
+                // Para todos los demás casos (chat normal, o adivinanza incorrecta), retransmitir
                 const message = {
                     senderId: client.userId,
                     senderName: client.username,
                     text,
                     timestamp: Date.now(),
+                    isSystem: false,
                 };
-                // Enviar mensaje a todos en la sala
-                (_a = this.io) === null || _a === void 0 ? void 0 : _a.to(roomId).emit(SocketEvent.CHAT_MESSAGE, message);
+                this.io.to(roomId).emit(SocketEvent.CHAT_MESSAGE, message);
                 callback === null || callback === void 0 ? void 0 : callback();
             }
             catch (error) {
                 logger_1.default.error('Error sending chat message:', error);
                 callback === null || callback === void 0 ? void 0 : callback('Error sending chat message');
             }
-        });
+        }));
     }
     // Configurar eventos relacionados con el juego
     setupGameEvents(socket) {

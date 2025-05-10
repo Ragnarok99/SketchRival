@@ -1,6 +1,12 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OPENAI_API_KEY = exports.GOOGLE_CALLBACK_URL = exports.GOOGLE_CLIENT_SECRET = exports.GOOGLE_CLIENT_ID = exports.REFRESH_TOKEN_EXPIRES_IN = exports.ACCESS_TOKEN_EXPIRES_IN = exports.JWT_SECRET = exports.DB_NAME = exports.MONGODB_URI = void 0;
+// Importar dotenv y cargar las variables de entorno
+const dotenv_1 = __importDefault(require("dotenv"));
+dotenv_1.default.config();
 exports.MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sketchrival';
 exports.DB_NAME = 'sketchrival';
 exports.JWT_SECRET = process.env.JWT_SECRET || 'supersecretkeydontusethisinprod';

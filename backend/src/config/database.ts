@@ -1,3 +1,7 @@
+// Importar dotenv y cargar las variables de entorno
+import dotenv from 'dotenv';
+dotenv.config();
+
 export const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sketchrival';
 export const DB_NAME = 'sketchrival';
 export const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkeydontusethisinprod';
