@@ -375,26 +375,46 @@ export default function WaitingRoom({
     });
     
     const unsubscribePlayerLeft = on('room:playerLeft', (data: any) => {
-      // Asegurarse de que players sea un array
-      const playersData = Array.isArray(data.room.players) ? data.room.players : [];
+      console.log('[WaitingRoom] room:playerLeft recibido:', data);
       
-      const formattedPlayers = playersData.map((player: any) => ({
-        id: player.userId,
-        username: player.username,
-        isReady: player.isReady,
-        isHost: player.role === 'host',
-        role: player.role,
-        avatarColor: player.avatarColor || '#3b82f6',
-      }));
+      // Verificar si hay datos válidos
+      if (!data || !data.playerId) {
+        console.error('Datos inválidos en evento room:playerLeft:', data);
+        return;
+      }
       
-      // Usar el playerId proporcionado directamente en el evento
+      // Obtener lista de jugadores actualizada
+      const playersData = Array.isArray(data.room?.players) ? data.room.players : [];
+      
+      // Si no hay datos de jugadores (fallback case), eliminar directamente el jugador que salió
+      if (playersData.length === 0 && data.playerId) {
+        setPlayers(prevPlayers => {
+          const updatedPlayers = prevPlayers.filter(p => p.id !== data.playerId);
+          // Calcular estadísticas con la lista actualizada
+          calculateReadyStats(updatedPlayers);
+          return updatedPlayers;
+        });
+      } else {
+        // Procesar los datos recibidos normalmente
+        const formattedPlayers = playersData.map((player: any) => ({
+          id: player.userId,
+          username: player.username,
+          isReady: player.isReady || false,
+          isHost: player.role === 'host',
+          role: player.role || 'player',
+          avatarColor: player.avatarColor || '#3b82f6',
+        }));
+        
+        // Actualizar estado de jugadores sin introducir duplicados
+        setPlayers(formattedPlayers);
+        calculateReadyStats(formattedPlayers);
+      }
+      
+      // Obtener información del jugador que salió para la notificación
       const leftPlayerId = data.playerId;
       const leftPlayerName = data.playerName || 'Un jugador';
       
-      setPlayers(formattedPlayers);
-      calculateReadyStats(formattedPlayers);
-      
-      // Mostrar notificación de jugador salido usando datos del evento
+      // Mostrar notificación
       setNotification({
         type: 'warning',
         message: `${leftPlayerName} ha abandonado la sala.`

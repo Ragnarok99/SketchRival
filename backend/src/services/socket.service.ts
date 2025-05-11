@@ -399,30 +399,11 @@ class SocketService {
           // Continuamos con la desconexión en memoria aunque falle la BD
         }
 
-        // Actualizar la memoria
-        this.handleClientLeaveRoom(socket, roomId);
+        // Actualizar la memoria y enviar notificación a los demás jugadores
+        // handleClientLeaveRoom ya se encarga de enviar el evento ROOM_PLAYER_LEFT
+        await this.handleClientLeaveRoom(socket, roomId);
 
-        // Obtener datos actualizados de la sala desde la base de datos
-        const playersData = await GamePlayerModel.find({
-          roomId: new Types.ObjectId(roomId),
-          status: { $ne: 'left' }, // Excluir jugadores que han abandonado
-        }).lean();
-
-        const formattedPlayers = playersData.map((player) => ({
-          userId: player.userId.toString(),
-          username: player.username,
-          isReady: player.isReady || false,
-          role: player.role || 'player',
-        }));
-
-        // Notificar a los demás con datos actualizados desde la BD
-        socket.to(roomId).emit(SocketEvent.ROOM_PLAYER_LEFT, {
-          playerId: client.userId,
-          room: {
-            id: roomId,
-            players: formattedPlayers,
-          },
-        });
+        // Ya no necesitamos duplicar el evento aquí, ya se envía en handleClientLeaveRoom
 
         callback?.();
       } catch (error) {
@@ -839,7 +820,7 @@ class SocketService {
   }
 
   // Manejar salida de un cliente de una sala
-  private handleClientLeaveRoom(socket: any, roomId: string) {
+  private async handleClientLeaveRoom(socket: any, roomId: string) {
     const client = this.clients.get(socket.id);
     if (!client) return;
 
@@ -860,25 +841,40 @@ class SocketService {
       // Eliminar estado de la sala
       this.roomStates.delete(roomId);
     } else {
-      // Notificar a otros en la sala
-      socket.to(roomId).emit(SocketEvent.ROOM_PLAYER_LEFT, {
-        playerId: client.userId,
-        // TODO: Obtener datos actualizados de la sala
-        room: {
-          players: Array.from(this.getClientsInRoom(roomId))
-            .map((socketId) => {
-              const c = this.clients.get(socketId);
-              return c
-                ? {
-                    userId: c.userId,
-                    username: c.username,
-                    role: 'player', // Simulado
-                  }
-                : null;
-            })
-            .filter(Boolean),
-        },
-      });
+      try {
+        // Obtener datos actualizados de la sala desde la base de datos
+        const playersData = await GamePlayerModel.find({
+          roomId: new Types.ObjectId(roomId),
+          status: { $ne: 'left' }, // Excluir jugadores que han abandonado
+        }).lean();
+
+        const formattedPlayers = playersData.map((player: any) => ({
+          userId: player.userId.toString(),
+          username: player.username,
+          isReady: player.isReady || false,
+          role: player.role || 'player',
+          avatarColor: player.avatarColor || '#3b82f6',
+        }));
+
+        // Notificar a otros en la sala con datos actualizados desde la BD
+        socket.to(roomId).emit(SocketEvent.ROOM_PLAYER_LEFT, {
+          playerId: client.userId,
+          playerName: client.username,
+          room: {
+            id: roomId,
+            players: formattedPlayers,
+          },
+        });
+      } catch (error) {
+        logger.error(`Error obteniendo datos actualizados de la sala ${roomId} después de salida:`, error);
+        // Enviar notificación con datos de memoria como fallback
+        socket.to(roomId).emit(SocketEvent.ROOM_PLAYER_LEFT, {
+          playerId: client.userId,
+          playerName: client.username,
+          // Información básica sin detalles completos
+          room: { id: roomId },
+        });
+      }
     }
 
     logger.info(`Client ${socket.id} (${client.username}) left room ${roomId}`);

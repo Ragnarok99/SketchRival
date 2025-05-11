@@ -80,6 +80,8 @@ export default function useSocket(options: UseSocketOptions = {}) {
     heartbeatInterval = 10000,
   } = options;
 
+  console.log('[useSocket] Inicializando con URL:', url);
+
   const { user } = useAuth();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connectionState, setConnectionState] = useState<SocketConnectionState>(
@@ -95,27 +97,44 @@ export default function useSocket(options: UseSocketOptions = {}) {
 
   // Función para conectar al socket
   const connect = useCallback(() => {
-    if (!user || !url) {
+    console.log('[useSocket] Intentando conectar. Usuario:', user ? `${user.username} (${user.userId})` : 'No autenticado', 'URL:', url);
+    
+    if (!user) {
+      console.error('[useSocket] Error: No hay usuario autenticado disponible');
       setConnectionState(SocketConnectionState.ERROR);
-      setError(new Error('No user or socket URL available'));
-      return;
+      setError(new Error('No user available for socket connection'));
+      return null;
+    }
+
+    if (!url) {
+      console.error('[useSocket] Error: URL de socket no configurada. Verifica la variable NEXT_PUBLIC_SOCKET_URL en .env.local');
+      setConnectionState(SocketConnectionState.ERROR);
+      setError(new Error('Socket URL not available. Check NEXT_PUBLIC_SOCKET_URL in .env.local'));
+      return null;
     }
 
     try {
       setConnectionState(SocketConnectionState.CONNECTING);
+      console.log('[useSocket] Estado cambiado a CONNECTING');
+      
+      const token = localStorage.getItem('accessToken');
+      console.log('[useSocket] Token disponible:', !!token);
       
       const socketInstance = io(url, {
         auth: {
           userId: user.userId,
           username: user.username,
-          token: localStorage.getItem('accessToken'), // Usar token si está disponible
+          token: token,
         },
         reconnection: false, // Manejamos reconexión manualmente
         timeout: 10000,
       });
 
+      console.log('[useSocket] Socket instanciado, configurando listeners');
+
       // Manejar eventos de conexión
       socketInstance.on('connect', () => {
+        console.log('[useSocket] Conectado exitosamente al servidor socket');
         setConnectionState(SocketConnectionState.CONNECTED);
         setError(null);
         reconnectCount.current = 0;
@@ -124,20 +143,20 @@ export default function useSocket(options: UseSocketOptions = {}) {
       });
 
       socketInstance.on('connect_error', (err) => {
-        console.error('Socket connection error:', err);
+        console.error('[useSocket] Error de conexión al socket:', err, typeof err === 'object' ? JSON.stringify(err) : err);
         setError(err);
         handleReconnect();
       });
 
       socketInstance.on('disconnect', (reason) => {
-        console.warn('Socket disconnected:', reason);
+        console.warn('[useSocket] Socket desconectado. Razón:', reason);
         setConnectionState(SocketConnectionState.DISCONNECTED);
         stopHeartbeat();
         handleReconnect();
       });
 
       socketInstance.on('error', (err) => {
-        console.error('Socket error:', err);
+        console.error('[useSocket] Error en socket:', err);
         setError(typeof err === 'string' ? new Error(err) : err);
         setConnectionState(SocketConnectionState.ERROR);
       });
@@ -213,7 +232,8 @@ export default function useSocket(options: UseSocketOptions = {}) {
 
   // Inicializar conexión
   useEffect(() => {
-    if (autoConnect) {
+    if (autoConnect && user) { // Solo conectar si hay usuario autenticado
+      console.log("[useSocket] Iniciando conexión automática, usuario autenticado:", user.username);
       const socketInstance = connect();
       
       return () => {
@@ -225,8 +245,17 @@ export default function useSocket(options: UseSocketOptions = {}) {
         }
         stopHeartbeat();
       };
+    } else if (autoConnect && !user) {
+      // Si se desea conectar automáticamente pero no hay usuario, 
+      // desconectar cualquier socket existente y limpiar estado
+      console.log("[useSocket] No hay usuario autenticado, desconectando cualquier socket existente");
+      if (socket) {
+        socket.disconnect();
+        setSocket(null);
+      }
+      setConnectionState(SocketConnectionState.DISCONNECTED);
     }
-  }, [autoConnect, connect, stopHeartbeat]);
+  }, [autoConnect, connect, stopHeartbeat, user]); // user como dependencia para reconectar cuando cambia la autenticación
 
   // Función segura para emitir eventos
   const emit = useCallback(

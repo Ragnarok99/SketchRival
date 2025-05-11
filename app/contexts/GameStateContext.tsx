@@ -207,21 +207,58 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
   }, [dispatch]);
 
   useEffect(() => {
-    // PRIMERO, ASEGURARSE DE QUE TENEMOS UN roomId VÁLIDO
-    if (!roomId) { // Si roomId es undefined, null, o una cadena vacía
-      console.log('[GameStateContext] useEffect: roomId no está definido aún. Saliendo.');
-      setIsLoading(false); // Podríamos querer poner isLoading a false si no hay roomId
-      return; 
+    console.log(`[GameStateContext] useEffect triggered. roomId: ${roomId}, connectionState: ${connectionState}, socket available: ${!!socket}, socket connected: ${socket?.connected}, user: ${!!user}, isLoading: ${isLoading}`);
+
+    if (!roomId) {
+      console.log('[GameStateContext] useEffect: roomId no está definido. Estableciendo isLoading a false.');
+      if (isLoading) setIsLoading(false);
+      return;
     }
 
-    if (!socket || connectionState !== SocketConnectionState.CONNECTED || !user) {
-      console.log('[GameStateContext] useEffect: Socket no listo o usuario no autenticado. Saliendo.');
-      if (isLoading) setIsLoading(false); // Si estábamos cargando y no hay socket, dejar de cargar.
+    if (!user) {
+      console.log('[GameStateContext] useEffect: Usuario no autenticado. Estableciendo isLoading a false.');
+      if (isLoading) setIsLoading(false);
+      // Podrías querer mostrar un toast o redirigir si el usuario no está autenticado y se espera que lo esté.
+      // showToast({ id: 'auth_error', type: 'error', message: 'Usuario no autenticado.', duration: 5000 });
       return;
     }
     
-    console.log('[GameStateContext] useEffect: Socket listo y usuario autenticado. Estableciendo isLoading a true y emitiendo game:getState');
-    setIsLoading(true);
+    if (!socket || connectionState !== SocketConnectionState.CONNECTED || !socket.connected) {
+      console.log('[GameStateContext] useEffect: Socket no listo o no conectado.');
+      if (!socket) console.warn('[GameStateContext] WARN: Socket object no disponible todavía.');
+      else if (connectionState !== SocketConnectionState.CONNECTED) console.warn(`[GameStateContext] WARN: Estado de conexión no es CONNECTED, es: ${connectionState}`);
+      else if (!socket.connected) console.warn('[GameStateContext] WARN: Socket object disponible, pero socket.connected es false.');
+      
+      // Si el socket no está listo pero isLoading es true (significa que estamos esperando la conexión inicial),
+      // no hacemos nada y esperamos a que el hook useSocket complete la conexión y este useEffect se vuelva a ejecutar.
+      // Si isLoading ya es false, y el socket se desconecta, podríamos querer manejarlo, pero por ahora,
+      // el flujo principal es para la carga inicial.
+      if (isLoading && (connectionState === SocketConnectionState.CONNECTING || connectionState === SocketConnectionState.DISCONNECTED)) {
+        console.log('[GameStateContext] useEffect: Socket conectando o desconectado, pero aún en estado de carga. Esperando...');
+        return;
+      }
+      
+      // Si no estamos cargando (isLoading es false) y el socket se pierde, o si nunca se pudo conectar y ya no estamos en el estado inicial de carga.
+      if (!isLoading) {
+         console.warn('[GameStateContext] useEffect: Socket no conectado y no estamos en estado de carga. Puede ser una desconexión.');
+         // Aquí podrías manejar una desconexión mostrando un mensaje, pero no necesariamente deteniendo la carga si ya terminó.
+      } else {
+        // Si isLoading es true, pero el socket no está listo por alguna otra razón (ej. error de conexión)
+        setIsLoading(false); 
+        console.log('[GameStateContext] useEffect: Socket no listo y estábamos cargando. Estableciendo isLoading a false.');
+      }
+      return;
+    }
+
+    // En este punto, socket está disponible, user está autenticado, y connectionState es CONNECTED y socket.connected es true.
+    console.log('[GameStateContext] useEffect: Socket listo y usuario autenticado. Procediendo a obtener estado del juego.');
+    
+    // Solo establecer isLoading a true si realmente vamos a hacer la llamada.
+    // Y solo si no estábamos ya cargando (aunque la condición anterior de isLoading debería manejar esto)
+    if (!isLoading) { // Evitar bucles si ya está en true y algo más dispara el effect.
+        console.log('[GameStateContext] useEffect: Estableciendo isLoading a true antes de game:getState.');
+        setIsLoading(true);
+    }
 
     console.log('[GameStateContext] Emitiendo game:getState con roomId:', roomId);
     emit('game:getState', { roomId }, (error: any, data: any) => {
@@ -233,12 +270,10 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
         console.log('[GameStateContext] game:getState DATOS RECIBIDOS:', data);
         dispatch({ type: 'SET_STATE', payload: data });
       } else {
-        console.warn('[GameStateContext] game:getState: No se recibieron datos ni errores. El estado inicial podría ser nulo.');
-        // Opcionalmente, establecer un estado por defecto o manejarlo como un error si se espera siempre un estado.
-        // Por ahora, permitimos que el estado se establezca como null o vacío si es lo que devuelve el servidor.
-        dispatch({ type: 'SET_STATE', payload: initialState }); // Volver al estado inicial si no hay datos.
+        console.warn('[GameStateContext] game:getState: No se recibieron datos ni errores.');
+        dispatch({ type: 'SET_STATE', payload: { ...initialState, roomId } });
       }
-      console.log('[GameStateContext] game:getState: Estableciendo isLoading a false.');
+      console.log('[GameStateContext] game:getState: Estableciendo isLoading a false después del callback.');
       setIsLoading(false);
     });
 
@@ -286,12 +321,12 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
         unsubNotification();
         unsubGameStarted(); // Limpiar este manejador también
     };
-  }, [socket, connectionState, user, roomId, emit, on, showToast]);
+  }, [socket, connectionState, user, roomId, emit, on, showToast, dispatch]);
 
   const triggerEvent = useCallback((event: GameEvent, payload?: any) => {
-    if (!socket || connectionState !== SocketConnectionState.CONNECTED) {
+    if (!socket || connectionState !== SocketConnectionState.CONNECTED || !socket.connected) {
       showToast({id: Date.now().toString(), type:'error', message: 'Socket no disponible para enviar evento.', duration: 3000});
-      console.error('Socket no disponible');
+      console.error('Socket no disponible o no conectado');
       return;
     }
     emit('game:event', { roomId, event, payload });
@@ -303,7 +338,7 @@ export function GameStateProvider({ roomId, children }: GameStateProviderProps) 
   }, [triggerEvent, showToast]);
 
   const submitDrawing = useCallback(async (imageData: string) => {
-    if (!socket || connectionState !== SocketConnectionState.CONNECTED) {
+    if (!socket || connectionState !== SocketConnectionState.CONNECTED || !socket.connected) {
       const errMsg = 'No hay conexión disponible para enviar el dibujo.';
       showToast({id: Date.now().toString(), type: 'error', message: errMsg, duration: 5000});
       throw new Error(errMsg);

@@ -9,18 +9,33 @@ import GameContainer from '../../components/gameRoom/GameContainer';
 // Interfaces
 interface Room {
   id: string;
+  _id?: string;  // Campo adicional que puede venir del backend (MongoDB)
   name: string;
-  isPrivate: boolean;
+  isPrivate?: boolean;
+  type?: 'public' | 'private';
   accessCode?: string;
+  hostId?: string;
+  status?: string;
+  players?: Array<{
+    userId: string;
+    username: string;
+    isReady?: boolean;
+    role?: string;
+  }>;
+  configuration?: {
+    maxPlayers?: number;
+    timeLimit?: number;
+    categories?: string[];
+    difficulty?: string;
+    [key: string]: any;  // Para otras propiedades de configuración
+  };
+  createdAt?: string;
   // Añadir otros campos que pueda tener Room según tu aplicación
 }
 
 export default function GameRoomClient({ roomId }: { roomId: string }) {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, getAuthToken } = useAuth();
   const router = useRouter();
-  
-  // Ya no necesitamos obtener roomId de params.id
-  // const roomId = params.id;
   
   const [roomData, setRoomData] = useState<Room | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,17 +43,37 @@ export default function GameRoomClient({ roomId }: { roomId: string }) {
 
   // Cargar detalles de la sala
   useEffect(() => {
-    if (!isAuthenticated || !user) return;
+    if (!isAuthenticated || !user) {
+      console.log('[GameRoomClient] Usuario no autenticado, redirigiendo...');
+      router.push('/auth');
+      return;
+    }
 
     console.log('[GameRoomClient] Cargando detalles para roomId:', roomId);
     
     // Solicitar datos de la sala
     const fetchRoomData = async () => {
       try {
-        const response = await fetch(`/api/rooms/${roomId}`);
+        console.log('[GameRoomClient] Intentando obtener datos de sala para roomId:', roomId);
+        
+        // Obtener el token de autenticación usando el método del contexto
+        const token = getAuthToken();
+        
+        if (!token) {
+          console.error('[GameRoomClient] No hay token de autenticación disponible');
+          throw new Error('No estás autenticado. Por favor, inicia sesión nuevamente.');
+        }
+        
+        const response = await fetch(`/api/rooms/${roomId}`, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
         
         if (!response.ok) {
           const errorData = await response.json();
+          console.error('[GameRoomClient] Error en respuesta:', errorData);
           throw new Error(errorData.message || 'Error al cargar la sala');
         }
         
@@ -46,19 +81,55 @@ export default function GameRoomClient({ roomId }: { roomId: string }) {
         console.log('[GameRoomClient] Datos de sala recibidos:', data);
 
         // La API devuelve { room: {...} }, extraemos la sala del objeto
-        const roomData = data.room || data;
+        let roomData = data.room || data;
+        
+        console.log('[GameRoomClient] Datos normalizados de sala:', roomData);
+        
+        // Verificar que tengamos datos y normalizar la estructura (manejar _id o id)
+        if (!roomData) {
+          throw new Error('No se recibieron datos de la sala');
+        }
+        
+        // Normalizar datos para garantizar que siempre haya una propiedad 'id'
+        if (roomData._id && !roomData.id) {
+          roomData = {
+            ...roomData,
+            id: roomData._id
+          };
+        }
+        
+        // Verificar que ahora tengamos un ID
+        if (!roomData.id) {
+          console.error('[GameRoomClient] Datos de sala inválidos:', roomData);
+          throw new Error('Los datos de la sala no contienen un identificador válido');
+        }
         
         setRoomData(roomData);
+        setError(null);
       } catch (err) {
-        console.error('Error cargando sala:', err);
+        console.error('[GameRoomClient] Error cargando sala:', err);
         setError(err instanceof Error ? err.message : 'Error desconocido');
+        // Si hay un error de autenticación, redirigir al login
+        if (err instanceof Error && err.message.includes('autenticado')) {
+          router.push('/auth');
+        }
       } finally {
         setIsLoading(false);
       }
     };
     
     fetchRoomData();
-  }, [isAuthenticated, user, roomId, router]);
+  }, [isAuthenticated, user, roomId, router, getAuthToken]);
+
+  // Manejar caso donde el usuario no está autenticado
+  if (!isAuthenticated && !isLoading) {
+    router.push('/auth');
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <span className="text-gray-600">Redirigiendo al login...</span>
+      </div>
+    );
+  }
 
   // Manejar caso de carga
   if (isLoading) {
@@ -98,14 +169,33 @@ export default function GameRoomClient({ roomId }: { roomId: string }) {
     );
   }
 
+  // Si no hay datos de sala pero no hay error ni está cargando
+  if (!roomData) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-4 max-w-md">
+          <p className="text-sm text-yellow-700">
+            No se pudieron cargar los datos de la sala. Inténtalo de nuevo.
+          </p>
+        </div>
+        <button 
+          className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition-colors"
+          onClick={() => router.push('/gameRoom')}
+        >
+          Volver al Lobby
+        </button>
+      </div>
+    );
+  }
+
   // Renderizar la sala
   return (
     <GameStateProvider roomId={roomId}>
       <GameContainer 
         roomId={roomId} 
-        roomName={roomData?.name || 'Sala de juego'} 
-        isPrivate={roomData?.isPrivate || false} 
-        accessCode={roomData?.accessCode} 
+        roomName={roomData.name || 'Sala de juego'} 
+        isPrivate={roomData.isPrivate || roomData.type === 'private' || false} 
+        accessCode={roomData.accessCode} 
         onLeaveRoom={() => router.push('/gameRoom')} 
       />
     </GameStateProvider>

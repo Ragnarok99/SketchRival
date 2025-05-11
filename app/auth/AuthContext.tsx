@@ -57,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userData = await response.json();
           console.log('User verified:', userData);
           setUser(userData);
+          console.log('Usuario autenticado y disponible en contexto');
         } else {
           console.warn('Token verification failed. Status:', response.status);
           // Token no válido o expirado, limpiamos localStorage

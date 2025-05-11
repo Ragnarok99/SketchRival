@@ -382,27 +382,10 @@ class SocketService {
                     logger_1.default.error(`Error removing user ${client.userId} from room ${roomId} in database:`, error);
                     // Continuamos con la desconexión en memoria aunque falle la BD
                 }
-                // Actualizar la memoria
-                this.handleClientLeaveRoom(socket, roomId);
-                // Obtener datos actualizados de la sala desde la base de datos
-                const playersData = yield models_1.GamePlayerModel.find({
-                    roomId: new mongoose_1.Types.ObjectId(roomId),
-                    status: { $ne: 'left' }, // Excluir jugadores que han abandonado
-                }).lean();
-                const formattedPlayers = playersData.map((player) => ({
-                    userId: player.userId.toString(),
-                    username: player.username,
-                    isReady: player.isReady || false,
-                    role: player.role || 'player',
-                }));
-                // Notificar a los demás con datos actualizados desde la BD
-                socket.to(roomId).emit(SocketEvent.ROOM_PLAYER_LEFT, {
-                    playerId: client.userId,
-                    room: {
-                        id: roomId,
-                        players: formattedPlayers,
-                    },
-                });
+                // Actualizar la memoria y enviar notificación a los demás jugadores
+                // handleClientLeaveRoom ya se encarga de enviar el evento ROOM_PLAYER_LEFT
+                yield this.handleClientLeaveRoom(socket, roomId);
+                // Ya no necesitamos duplicar el evento aquí, ya se envía en handleClientLeaveRoom
                 callback === null || callback === void 0 ? void 0 : callback();
             }
             catch (error) {
@@ -760,45 +743,61 @@ class SocketService {
     }
     // Manejar salida de un cliente de una sala
     handleClientLeaveRoom(socket, roomId) {
-        var _a, _b;
-        const client = this.clients.get(socket.id);
-        if (!client)
-            return;
-        // Quitar socket de la sala
-        socket.leave(roomId);
-        // Actualizar referencia del cliente
-        client.roomId = undefined;
-        this.clients.set(socket.id, client);
-        // Actualizar mapa de salas
-        (_a = this.rooms.get(roomId)) === null || _a === void 0 ? void 0 : _a.delete(socket.id);
-        // Si la sala queda vacía, eliminarla
-        if (((_b = this.rooms.get(roomId)) === null || _b === void 0 ? void 0 : _b.size) === 0) {
-            this.rooms.delete(roomId);
-            // Eliminar estado de la sala
-            this.roomStates.delete(roomId);
-        }
-        else {
-            // Notificar a otros en la sala
-            socket.to(roomId).emit(SocketEvent.ROOM_PLAYER_LEFT, {
-                playerId: client.userId,
-                // TODO: Obtener datos actualizados de la sala
-                room: {
-                    players: Array.from(this.getClientsInRoom(roomId))
-                        .map((socketId) => {
-                        const c = this.clients.get(socketId);
-                        return c
-                            ? {
-                                userId: c.userId,
-                                username: c.username,
-                                role: 'player', // Simulado
-                            }
-                            : null;
-                    })
-                        .filter(Boolean),
-                },
-            });
-        }
-        logger_1.default.info(`Client ${socket.id} (${client.username}) left room ${roomId}`);
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b;
+            const client = this.clients.get(socket.id);
+            if (!client)
+                return;
+            // Quitar socket de la sala
+            socket.leave(roomId);
+            // Actualizar referencia del cliente
+            client.roomId = undefined;
+            this.clients.set(socket.id, client);
+            // Actualizar mapa de salas
+            (_a = this.rooms.get(roomId)) === null || _a === void 0 ? void 0 : _a.delete(socket.id);
+            // Si la sala queda vacía, eliminarla
+            if (((_b = this.rooms.get(roomId)) === null || _b === void 0 ? void 0 : _b.size) === 0) {
+                this.rooms.delete(roomId);
+                // Eliminar estado de la sala
+                this.roomStates.delete(roomId);
+            }
+            else {
+                try {
+                    // Obtener datos actualizados de la sala desde la base de datos
+                    const playersData = yield models_1.GamePlayerModel.find({
+                        roomId: new mongoose_1.Types.ObjectId(roomId),
+                        status: { $ne: 'left' }, // Excluir jugadores que han abandonado
+                    }).lean();
+                    const formattedPlayers = playersData.map((player) => ({
+                        userId: player.userId.toString(),
+                        username: player.username,
+                        isReady: player.isReady || false,
+                        role: player.role || 'player',
+                        avatarColor: player.avatarColor || '#3b82f6',
+                    }));
+                    // Notificar a otros en la sala con datos actualizados desde la BD
+                    socket.to(roomId).emit(SocketEvent.ROOM_PLAYER_LEFT, {
+                        playerId: client.userId,
+                        playerName: client.username,
+                        room: {
+                            id: roomId,
+                            players: formattedPlayers,
+                        },
+                    });
+                }
+                catch (error) {
+                    logger_1.default.error(`Error obteniendo datos actualizados de la sala ${roomId} después de salida:`, error);
+                    // Enviar notificación con datos de memoria como fallback
+                    socket.to(roomId).emit(SocketEvent.ROOM_PLAYER_LEFT, {
+                        playerId: client.userId,
+                        playerName: client.username,
+                        // Información básica sin detalles completos
+                        room: { id: roomId },
+                    });
+                }
+            }
+            logger_1.default.info(`Client ${socket.id} (${client.username}) left room ${roomId}`);
+        });
     }
     // Obtener clientes en una sala
     getClientsInRoom(roomId) {
