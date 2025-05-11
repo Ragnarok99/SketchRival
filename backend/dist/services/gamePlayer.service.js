@@ -58,10 +58,14 @@ const getRoomReadyStatus = (roomId) => __awaiter(void 0, void 0, void 0, functio
     // Contar jugadores totales y listos
     const playerCount = players.length;
     const readyCount = players.filter((player) => player.isReady).length;
+    const allReady = playerCount > 0 && playerCount === readyCount;
+    // Mínimo 2 jugadores para comenzar
+    const canStart = playerCount >= 2 && allReady;
     return {
         playerCount,
         readyCount,
-        allReady: playerCount > 0 && playerCount === readyCount,
+        allReady,
+        canStart,
     };
 });
 exports.getRoomReadyStatus = getRoomReadyStatus;

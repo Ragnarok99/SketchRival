@@ -44,7 +44,11 @@ export default function GameRoomClient({ roomId }: { roomId: string }) {
         
         const data = await response.json();
         console.log('[GameRoomClient] Datos de sala recibidos:', data);
-        setRoomData(data);
+
+        // La API devuelve { room: {...} }, extraemos la sala del objeto
+        const roomData = data.room || data;
+        
+        setRoomData(roomData);
       } catch (err) {
         console.error('Error cargando sala:', err);
         setError(err instanceof Error ? err.message : 'Error desconocido');

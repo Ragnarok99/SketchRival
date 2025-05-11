@@ -1,5 +1,6 @@
 import { Server as SocketServer } from 'socket.io';
-import { Server } from 'http';
+import { Server as HttpServer } from 'http';
+import { Server as HttpsServer } from 'https';
 import jwt from 'jsonwebtoken';
 import config from '../config';
 import logger from '../utils/logger';
@@ -9,6 +10,7 @@ import * as gameRoomsService from './gameRooms.service';
 import * as gamePlayerService from './gamePlayer.service';
 import { GamePlayerModel } from '../models';
 import { Types } from 'mongoose';
+import * as waitingRoomService from './waitingRoom.service';
 // import gameService from './gameService'; // Comentamos esta línea ya que el módulo no existe
 
 // Enumeración para estados del juego
@@ -102,7 +104,7 @@ class SocketService {
   private disconnectedUsers: Map<string, { timestamp: number; roomId?: string }> = new Map(); // userId -> info
 
   // Inicializar el servidor Socket.io
-  initialize(server: Server) {
+  initialize(server: HttpServer | HttpsServer) {
     this.io = new SocketServer(server, {
       cors: {
         origin: config.corsOrigins,
@@ -430,7 +432,7 @@ class SocketService {
     });
 
     // Marcar como listo/no listo
-    socket.on(SocketEvent.ROOM_SET_READY, (data: any, callback?: Function) => {
+    socket.on(SocketEvent.ROOM_SET_READY, async (data: any, callback?: Function) => {
       try {
         const { roomId, isReady } = data;
         const client = this.clients.get(socket.id);
@@ -439,29 +441,38 @@ class SocketService {
           return callback?.('Invalid request');
         }
 
-        // TODO: Actualizar estado en base de datos
+        // Actualizar estado en base de datos
+        try {
+          await waitingRoomService.setPlayerReady(roomId, client.userId, isReady);
+        } catch (error) {
+          logger.error('Error updating player ready status in database:', error);
+          return callback?.('Error updating ready status');
+        }
 
-        // Notificar a todos en la sala
+        // Obtener datos actualizados de la sala desde la base de datos
+        const playersData = await GamePlayerModel.find({
+          roomId: new Types.ObjectId(roomId),
+          status: { $ne: 'left' }, // Excluir jugadores que han abandonado
+        }).lean();
+
+        const formattedPlayers = playersData.map((player: any) => ({
+          userId: player.userId.toString(),
+          username: player.username,
+          isReady: player.isReady || false,
+          role: player.role || 'player',
+          avatarColor: player.avatarColor || '#3b82f6',
+        }));
+
+        // Notificar a todos en la sala con datos actualizados
         this.io?.to(roomId).emit(SocketEvent.ROOM_PLAYER_READY, {
           playerId: client.userId,
           isReady,
-          // TODO: Obtener datos actualizados de la sala
           room: {
-            players: Array.from(this.getClientsInRoom(roomId))
-              .map((socketId) => {
-                const c = this.clients.get(socketId);
-                return c
-                  ? {
-                      userId: c.userId,
-                      username: c.username,
-                      isReady: c.userId === client.userId ? isReady : false, // Simulado
-                      role: 'player', // Simulado
-                    }
-                  : null;
-              })
-              .filter(Boolean),
+            id: roomId,
+            players: formattedPlayers,
           },
         });
+
         callback?.();
       } catch (error) {
         logger.error('Error setting ready status:', error);
@@ -470,7 +481,7 @@ class SocketService {
     });
 
     // Iniciar juego (solo anfitrión)
-    socket.on(SocketEvent.GAME_START, (data: any, callback?: Function) => {
+    socket.on(SocketEvent.GAME_START, async (data: any, callback?: Function) => {
       try {
         const { roomId } = data;
         const client = this.clients.get(socket.id);
@@ -479,13 +490,37 @@ class SocketService {
           return callback?.('Invalid request');
         }
 
-        // TODO: Verificar si el cliente es anfitrión y todos están listos
+        // Verificar si el cliente es anfitrión y todos están listos
+        const readyStatus = await gamePlayerService.getRoomReadyStatus(roomId);
+
+        if (!readyStatus.canStart) {
+          return callback?.('Not all players are ready or not enough players');
+        }
+
+        // Obtener datos actualizados de la sala desde la base de datos
+        const playersData = await GamePlayerModel.find({
+          roomId: new Types.ObjectId(roomId),
+          status: { $ne: 'left' }, // Excluir jugadores que han abandonado
+        }).lean();
+
+        const formattedPlayers = playersData.map((player: any) => ({
+          userId: player.userId.toString(),
+          username: player.username,
+          isReady: player.isReady || false,
+          role: player.role || 'player',
+          avatarColor: player.avatarColor || '#3b82f6',
+        }));
 
         // Notificar a todos que el juego comenzó
         this.io?.to(roomId).emit(SocketEvent.ROOM_GAME_STARTED, {
           roomId,
           startedById: client.userId,
+          room: {
+            id: roomId,
+            players: formattedPlayers,
+          },
         });
+
         callback?.();
       } catch (error) {
         logger.error('Error starting game:', error);

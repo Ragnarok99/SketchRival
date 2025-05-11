@@ -424,6 +424,7 @@ export default function WaitingRoom({
         setReadyStatus(data.isReady);
       }
       
+      // Reemplazar completamente el estado de los jugadores
       setPlayers(formattedPlayers);
       calculateReadyStats(formattedPlayers);
     });
@@ -641,35 +642,52 @@ export default function WaitingRoom({
         </div>
       )}
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
-        {/* Lista de jugadores */}
-        <div className="md:col-span-2 bg-gray-50 p-3 sm:p-4 rounded-lg shadow-inner">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+        <div className="md:col-span-2 bg-gray-50 p-3 sm:p-4 rounded-lg overflow-y-auto h-[300px] md:h-[400px] shadow-inner">
           <h3 className="text-base sm:text-lg font-semibold mb-3 text-gray-700">Jugadores en la sala</h3>
           
+          {/* Estado de la sala */}
+          <div className="mb-2 sm:mb-3 flex flex-wrap gap-2">
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+              {readyStats.readyCount}/{readyStats.playerCount} listos
+            </span>
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+              {readyStats.playerCount}/{readyStats.totalPlayers} jugadores
+            </span>
+            {isPrivate && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                Sala privada
+              </span>
+            )}
+          </div>
+          
           {players.length === 0 ? (
-            <p className="text-gray-500 text-center py-4 text-sm sm:text-base">No hay jugadores en la sala</p>
+            <div className="text-gray-500 text-sm italic p-4 text-center">
+              No hay jugadores en la sala.
+            </div>
           ) : (
-            <ul className="divide-y divide-gray-200">
-              {players.map((player, index) => (
-                <li key={`${player.id}-${index}`} className="py-2.5 sm:py-3 flex items-center justify-between">
-                  <div className="flex items-center min-w-0">
+            <ul className="space-y-1.5">
+              {players.map((player) => (
+                <li key={`player-${player.id}`} className="py-2.5 sm:py-3 flex items-center justify-between">
+                  <div className="flex items-center">
+                    {/* Avatar */}
                     <div 
-                      className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center mr-2 sm:mr-3 flex-shrink-0 border border-gray-300 shadow-sm"
+                      className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white font-medium text-sm sm:text-base" 
                       style={{ backgroundColor: player.avatarColor }}
                     >
-                      <span className="text-white text-xs sm:text-sm font-medium">
-                        {player.username.charAt(0).toUpperCase()}
-                      </span>
+                      {player.username.charAt(0).toUpperCase()}
                     </div>
                     
                     {/* Nombre de usuario */}
-                    <div className="min-w-0">
-                      <span className="font-medium text-sm sm:text-base truncate block text-gray-800" title={player.username}>{player.username}</span>
-                      {player.isHost && (
-                        <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-full ml-1 sm:ml-2 font-medium">
-                          Anfitrión
-                        </span>
-                      )}
+                    <div className="ml-2 sm:ml-3">
+                      <p className="text-sm sm:text-base font-medium text-gray-700 flex items-center">
+                        {player.username}
+                        {player.isHost && (
+                          <span className="ml-1.5 text-xs text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full">
+                            Anfitrión
+                          </span>
+                        )}
+                      </p>
                     </div>
                   </div>
                   
